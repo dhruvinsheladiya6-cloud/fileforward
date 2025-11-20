@@ -1,0 +1,2 @@
+-- This is a placeholder. The actual SQL content is too large to include here.
+-- The user provided the complete SQL dump which will be imported directly.
