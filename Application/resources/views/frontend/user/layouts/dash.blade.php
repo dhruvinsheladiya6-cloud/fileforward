@@ -382,6 +382,8 @@
                                         </div>
                                         <div class="modal-body">
                                             <form id="createFileRequestForm">
+                                                <!-- Hidden username for accessibility (browser autofill) -->
+                                                <input type="text" name="username" autocomplete="username" style="display:none;" aria-hidden="true">
                                                 <div class="mb-3">
                                                     <label class="form-label">{{ lang('Password Protection (Optional)', 'user') }}</label>
                                                     <input type="password" class="form-control" name="password" placeholder="{{ lang('Enter password to protect link', 'user') }}" autocomplete="new-password">
@@ -485,12 +487,13 @@
     @hasSection('upload')
         @include('frontend.global.includes.uploadbox')
     @endif
+    {{-- Modal HTML must be rendered BEFORE scripts so event listeners can find elements --}}
+    @stack('modals')
     @include('frontend.configurations.config')
     @include('frontend.configurations.widgets')
     @include('frontend.user.includes.scripts')
 
-    {{-- allow pages to inject modals and scripts for SHARE WITH ME --}}
-    @stack('modals')
+    {{-- Additional page-specific scripts --}}
     @stack('scripts')
 </body>
 
@@ -699,4 +702,245 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<!-- Premium Navbar Loading Bar with Inline Styles -->
+<style>
+.navbar-loading-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(0,0,0,0.05);
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    z-index: 9999;
+}
+.navbar-loading-bar.active {
+    opacity: 1;
+    visibility: visible;
+}
+.navbar-loading-fill {
+    height: 100%;
+    width: 0%;
+    position: relative;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.2s ease-out, box-shadow 0.3s ease;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #f43f5e);
+    background-size: 300% 100%;
+    animation: gradientMove 2s ease infinite;
+}
+.navbar-loading-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+    animation: shimmer 1.2s ease-in-out infinite;
+}
+.navbar-loading-fill::before {
+    content: '';
+    position: absolute;
+    right: -5px;
+    top: -4px;
+    width: 12px;
+    height: 12px;
+    background: #f43f5e;
+    border-radius: 50%;
+    box-shadow: 0 0 15px 5px rgba(244, 63, 94, 0.7);
+    animation: pulse 0.8s ease-in-out infinite;
+}
+@keyframes gradientMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+}
+@keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: 0.7; }
+}
+</style>
+
+<!-- jQuery-based Loader Script -->
+<script>
+(function($) {
+    if (window.__loaderReady) return;
+    window.__loaderReady = true;
+    
+    var $bar = $('#navbarLoadingBar');
+    var $fill = $('#navbarLoadingFill');
+    if (!$bar.length || !$fill.length) return;
+    
+    // State
+    var running = false;
+    var progress = 0;
+    var timer = null;
+    var hideTimer = null;
+    var initTime = Date.now();
+    var GRACE_MS = 800;
+    
+    function show() {
+        $bar.addClass('active');
+        $fill.css('opacity', '1');
+    }
+    
+    function hide() {
+        $fill.css('opacity', '0');
+        setTimeout(function() {
+            $bar.removeClass('active');
+            $fill.css('width', '0%').css('opacity', '1');
+            progress = 0;
+            running = false;
+        }, 350);
+    }
+    
+    function setWidth(pct) {
+        progress = pct;
+        // Increase glow as progress increases
+        var glow = Math.min(20, pct / 5);
+        $fill.css({
+            'width': pct + '%',
+            'box-shadow': '0 0 ' + glow + 'px rgba(139, 92, 246, 0.8), 0 0 ' + (glow * 2) + 'px rgba(244, 63, 94, 0.5)'
+        });
+    }
+    
+    function tick() {
+        if (!running || progress >= 92) return;
+        
+        var inc;
+        if (progress < 25) inc = 5 + Math.random() * 4;
+        else if (progress < 50) inc = 3 + Math.random() * 2;
+        else if (progress < 75) inc = 1 + Math.random() * 1;
+        else inc = 0.3 + Math.random() * 0.4;
+        
+        setWidth(Math.min(92, progress + inc));
+        
+        var delay = progress < 40 ? 100 : (progress < 70 ? 180 : 280);
+        timer = setTimeout(tick, delay);
+    }
+    
+    function start() {
+        clearTimeout(hideTimer);
+        if (running) return;
+        
+        running = true;
+        window._loaderStartTime = Date.now();
+        setWidth(0);
+        show();
+        
+        setTimeout(function() {
+            if (running) {
+                setWidth(12);
+                tick();
+            }
+        }, 30);
+    }
+    
+    function done() {
+        if (!running) return;
+        clearTimeout(timer);
+        setWidth(100);
+        // Max glow at 100%
+        $fill.css('box-shadow', '0 0 25px rgba(139, 92, 246, 1), 0 0 50px rgba(244, 63, 94, 0.8)');
+        hideTimer = setTimeout(hide, 300);
+    }
+    
+    function reset() {
+        clearTimeout(timer);
+        clearTimeout(hideTimer);
+        $bar.removeClass('active');
+        $fill.css({'width': '0%', 'opacity': '1', 'box-shadow': 'none'});
+        progress = 0;
+        running = false;
+    }
+    
+    // Expose globally
+    window.NProgress = { start: start, done: done, reset: reset };
+    
+    // Request tracking with grace period
+    var pending = 0, doneCheck = null;
+    
+    function reqStart() {
+        if ((Date.now() - initTime) < GRACE_MS) return;
+        pending++;
+        start();
+    }
+    
+    function reqEnd() {
+        pending = Math.max(0, pending - 1);
+        clearTimeout(doneCheck);
+        doneCheck = setTimeout(function() {
+            if (pending === 0) done();
+        }, 120);
+    }
+    
+    // Patch jQuery AJAX
+    $(document).ajaxStart(reqStart).ajaxStop(function() {
+        pending = 0;
+        done();
+    });
+    
+    // Patch native fetch
+    if (window.fetch) {
+        var origFetch = window.fetch;
+        window.fetch = function() {
+            reqStart();
+            return origFetch.apply(window, arguments)
+                .then(function(r) { reqEnd(); return r; })
+                .catch(function(e) { reqEnd(); throw e; });
+        };
+    }
+    
+    // Patch XMLHttpRequest
+    var XHR = XMLHttpRequest.prototype;
+    var oOpen = XHR.open, oSend = XHR.send;
+    XHR.open = function() { this._ldr = false; return oOpen.apply(this, arguments); };
+    XHR.send = function() {
+        var x = this;
+        if (!x._ldr) {
+            x._ldr = true;
+            reqStart();
+            $(x).on('loadend', reqEnd);
+        }
+        return oSend.apply(this, arguments);
+    };
+    
+    // Links
+    $(document).on('click', 'a[href]', function(e) {
+        var $a = $(this);
+        var href = $a.attr('href') || '';
+        if (href[0] === '#' || href.indexOf('javascript:') === 0) return;
+        if ($a.data('bs-toggle') || $a.data('toggle')) return;
+        if ($a.attr('target') === '_blank') return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.isDefaultPrevented()) return;
+        start();
+    });
+    
+    // Forms
+    $(document).on('submit', 'form', function(e) {
+        if (!e.isDefaultPrevented()) start();
+    });
+    
+    // Page lifecycle
+    $(window).on('beforeunload', start);
+    $(window).on('load', reset);
+    $(window).on('pageshow', function() {
+        reset();
+        initTime = Date.now();
+    });
+    
+    // Failsafe
+    setInterval(function() {
+        if (running && window._loaderStartTime && (Date.now() - window._loaderStartTime > 25000)) {
+            reset();
+        }
+    }, 5000);
+    
+})(jQuery);
+</script>
 </html>

@@ -266,6 +266,8 @@
                             // permissions for actions in "shared browse" context
                             $isOwner   = (int)($share->owner_id ?? $share->file?->user_id) === (int)auth()->id();
                             $canEdit   = $share->canEdit(); // recipient has edit permission on this share?
+                            $canReshare = $share->canReshare(); // recipient can reshare this file?
+                            $canShare  = $isOwner || $canEdit || $canReshare; // can show share button?
                             // recipient can delete only the items they uploaded via THIS share
                             $canDelete = $isOwner || (
                                 $canEdit
@@ -321,6 +323,8 @@
                                                     </a>
                                                 </li>
 
+                                                {{-- Share (only if user has reshare/edit permission) --}}
+                                                @if($canShare)
                                                 <li>
                 <a href="#"
                    class="dropdown-item fileManager-share-with-me"
@@ -336,6 +340,7 @@
                     <i class="fas fa-user-friends me-2"></i>{{ __('Share') }}
                 </a>
             </li>
+                                                @endif
 
 
                                                 {{-- Download --}}
@@ -934,32 +939,36 @@
 
 
 
-{{-- Share With Me script --}}
+{{-- Share With Me script (jQuery optimized) --}}
 @push('scripts')
 <script>
-// Share With Me
-(function () {
-    const $ = (s, c = document) => c.querySelector(s);
+// Share With Me - jQuery Optimized
+(function($) {
+    'use strict';
+    if (typeof $ === 'undefined') return;
 
-    let currentSharedId = null;
-    let currentType = null;
-    let currentDownloadLink = null;
-    let clipboard = null;
+    var currentSharedId = null;
+    var currentType = null;
+    var currentDownloadLink = null;
+    var clipboard = null;
+    var csrfToken = $('meta[name="csrf-token"]').attr('content') || '';
+    var baseUrl = '{{ url("user/files") }}';
 
-    const MIN_CHARS_TO_SUGGEST = 1;
-    let suggest = {
+    var MIN_CHARS_TO_SUGGEST = 1;
+    var suggest = {
         items: [],
         open: false,
         activeIndex: -1,
-        lastQuery: '',
+        lastQuery: ''
     };
 
-    function showAlert(msg, type = 'success') {
-        const box = $('#swmAlert');
-        box.className = 'alert py-2 px-3 alert-' + (type === 'success' ? 'success' : 'danger');
-        box.textContent = msg;
-        box.classList.remove('d-none');
-        setTimeout(() => box.classList.add('d-none'), 3000);
+    function showAlert(msg, type) {
+        type = type || 'success';
+        var $box = $('#swmAlert');
+        $box.removeClass('d-none alert-success alert-danger')
+            .addClass('alert-' + (type === 'success' ? 'success' : 'danger'))
+            .text(msg);
+        setTimeout(function() { $box.addClass('d-none'); }, 3000);
     }
 
     function setTitle(fileName) {

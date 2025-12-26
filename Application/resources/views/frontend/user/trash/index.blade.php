@@ -291,122 +291,107 @@
     </div>
 @endif
 
-<!-- JavaScript for bulk actions -->
+<!-- JavaScript for bulk actions (jQuery optimized) -->
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-  // ----- DOM refs (scoped to header) -----
-  const actionsBar  = document.getElementById('filemanagerActions');
-  const headerCheck = actionsBar.querySelector('#selectAll');
-  const label       = actionsBar.querySelector('#selectAllLabel');
-  const headerFormCheck = actionsBar.querySelector('#trashHeaderFormCheck');
-
-  const selectText   = headerFormCheck?.dataset.select   || 'Select All';
-  const unselectText = headerFormCheck?.dataset.unselect || 'Unselect All';
-
-  const restoreForm  = document.getElementById('restoreAllForm');
-  const deleteForm   = document.getElementById('deleteForeverAllForm');
-  const restoreWrap  = document.getElementById('restoreHiddenInputs');
-  const deleteWrap   = document.getElementById('deleteHiddenInputs');
-
-  const fileContainer = document.getElementById('fileContainer') || document;
-
-  // ----- helpers -----
-  function boxes() {
-    return Array.from(document.querySelectorAll('.file-checkbox'));
-  }
-
-  function selectedIds() {
-    return boxes().filter(cb => cb.checked).map(cb => cb.value);
-  }
-
-  function rebuildHiddenInputs(container, ids) {
-    container.innerHTML = '';
-    ids.forEach(id => {
-      const input = document.createElement('input');
-      input.type  = 'hidden';
-      input.name  = 'file_ids[]';
-      input.value = id;
-      container.appendChild(input);
+(function($) {
+    'use strict';
+    
+    if (typeof $ === 'undefined') return;
+    
+    $(function() {
+        // Cache DOM elements
+        var $actionsBar = $('#filemanagerActions');
+        var $headerCheck = $('#selectAll');
+        var $label = $('#selectAllLabel');
+        var $headerFormCheck = $('#trashHeaderFormCheck');
+        var $restoreForm = $('#restoreAllForm');
+        var $deleteForm = $('#deleteForeverAllForm');
+        var $restoreWrap = $('#restoreHiddenInputs');
+        var $deleteWrap = $('#deleteHiddenInputs');
+        var $fileContainer = $('#fileContainer');
+        
+        var selectText = $headerFormCheck.data('select') || 'Select All';
+        var unselectText = $headerFormCheck.data('unselect') || 'Unselect All';
+        
+        // Helper functions
+        function getCheckboxes() {
+            return $('.file-checkbox');
+        }
+        
+        function getSelectedIds() {
+            return getCheckboxes().filter(':checked').map(function() {
+                return $(this).val();
+            }).get();
+        }
+        
+        function rebuildHiddenInputs($container, ids) {
+            $container.empty();
+            $.each(ids, function(i, id) {
+                $container.append($('<input>', {
+                    type: 'hidden',
+                    name: 'file_ids[]',
+                    value: id
+                }));
+            });
+        }
+        
+        function refreshHiddenInputs() {
+            var ids = getSelectedIds();
+            rebuildHiddenInputs($restoreWrap, ids);
+            rebuildHiddenInputs($deleteWrap, ids);
+            return ids;
+        }
+        
+        function updateHeaderUI() {
+            var $boxes = getCheckboxes();
+            var allChecked = $boxes.length > 0 && $boxes.length === $boxes.filter(':checked').length;
+            $headerCheck.prop('checked', allChecked);
+            $label.text(allChecked ? unselectText : selectText);
+        }
+        
+        function updateVisibility() {
+            var count = getSelectedIds().length;
+            $restoreForm.toggleClass('d-none', count === 0);
+            $deleteForm.toggleClass('d-none', count === 0);
+        }
+        
+        function syncUI() {
+            refreshHiddenInputs();
+            updateHeaderUI();
+            updateVisibility();
+        }
+        
+        // Event handlers using jQuery delegation
+        $fileContainer.off('change', '.file-checkbox').on('change', '.file-checkbox', syncUI);
+        
+        $headerCheck.off('change').on('change', function() {
+            var checked = $(this).is(':checked');
+            getCheckboxes().prop('checked', checked);
+            syncUI();
+        });
+        
+        // Click on card to toggle checkbox
+        $fileContainer.off('click', '.file-item').on('click', '.file-item', function(e) {
+            if ($(e.target).closest('input,button,label,a,.dropdown,.dropdown-menu,.form-check').length) return;
+            var $cb = $(this).find('.file-checkbox');
+            if ($cb.length) {
+                $cb.prop('checked', !$cb.prop('checked'));
+                syncUI();
+            }
+        });
+        
+        // Form submit guards
+        $restoreForm.add($deleteForm).off('submit').on('submit', function(e) {
+            if (refreshHiddenInputs().length === 0) {
+                e.preventDefault();
+            }
+        });
+        
+        // Initial sync
+        syncUI();
     });
-  }
-
-  function refreshHiddenInputs() {
-    const ids = selectedIds();
-    rebuildHiddenInputs(restoreWrap, ids);
-    rebuildHiddenInputs(deleteWrap, ids);
-    return ids;
-  }
-
-  function updateHeaderUI() {
-    const all = boxes();
-    const allChecked = all.length > 0 && all.every(cb => cb.checked);
-    headerCheck.checked = allChecked;
-    label.textContent = allChecked ? unselectText : selectText;
-  }
-
-  function updateVisibility() {
-    const count = selectedIds().length;
-    const show = count > 0;
-    restoreForm.classList.toggle('d-none', !show);
-    deleteForm.classList.toggle('d-none', !show);
-  }
-
-  function syncUI() {
-    refreshHiddenInputs();
-    updateHeaderUI();
-    updateVisibility();
-  }
-
-  // ----- events -----
-
-  // 1) Direct change on any file checkbox
-  function bindToCheckbox(cb) {
-    if (cb._boundChange) return;
-    cb.addEventListener('change', syncUI);
-    cb._boundChange = true;
-  }
-  boxes().forEach(bindToCheckbox);
-
-  // 2) Select All toggler
-  headerCheck.addEventListener('change', function () {
-    const checked = headerCheck.checked;
-    boxes().forEach(cb => { cb.checked = checked; });
-    syncUI();
-  });
-
-  // 3) Click on card area toggles its checkbox (nice UX)
-  //    Avoid toggling when the click is on actual controls (inputs, buttons, links, dropdowns)
-  fileContainer.addEventListener('click', function (e) {
-    const isControl = e.target.closest('input,button,label,a,.dropdown,.dropdown-menu,.form-check');
-    if (isControl) return;
-    const item = e.target.closest('.file-item');
-    if (!item) return;
-    const cb = item.querySelector('.file-checkbox');
-    if (!cb) return;
-    cb.checked = !cb.checked;
-    syncUI();
-  });
-
-  // 4) If DOM changes (pagination, ajax), (re)bind new checkboxes
-  const mo = new MutationObserver(() => {
-    boxes().forEach(bindToCheckbox);
-    syncUI();
-  });
-  mo.observe(fileContainer, { childList: true, subtree: true });
-
-  // 5) Final guard: right before submit, rebuild inputs from CURRENT state
-  [restoreForm, deleteForm].forEach(form => {
-    form.addEventListener('submit', function (e) {
-      const ids = refreshHiddenInputs(); // rebuild from live checkboxes
-      if (ids.length === 0) {
-        e.preventDefault(); // nothing selected — do nothing
-      }
-    });
-  });
-
-  // initial paint
-  syncUI();
-});
+    
+})(jQuery);
 </script>
 
 

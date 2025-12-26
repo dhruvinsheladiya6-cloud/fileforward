@@ -754,541 +754,334 @@
 
 @push('scripts')
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-
-    // ✅ Prevent script from installing twice (very important)
-    if (window.__swmInstalled) return;
-    window.__swmInstalled = true;
-
-(function () {
-    const $ = (s, c = document) => c.querySelector(s);
-
-    let currentSharedId = null;
-    let currentType = null;
-    let currentDownloadLink = '';
-    let clipboard = null;
-
-    const MIN_CHARS_TO_SUGGEST = 1;
-    let suggest = { items: [], open: false, activeIndex: -1, lastQuery: '' };
-
-    function showAlert(msg, type = 'success') {
-        const box = $('#swmAlert');
-        if (!box) return;
-        box.className = 'alert py-2 px-3 alert-' + (type === 'success' ? 'success' : 'danger');
-        box.textContent = msg;
-        box.classList.remove('d-none');
-        setTimeout(() => box.classList.add('d-none'), 3000);
+/**
+ * Share Modal - Complete Inline Implementation
+ * No external dependencies - all code is here
+ */
+(function($) {
+    'use strict';
+    
+    var csrfToken = $('meta[name="csrf-token"]').attr('content') || '';
+    var baseUrl = '{{ url("user/files") }}';
+    var currentSharedId = null;
+    var currentDownloadLink = '';
+    
+    // Show alert in modal
+    function showAlert(msg, type) {
+        var $box = $('#swmAlert');
+        if (!$box.length) return;
+        $box.removeClass('d-none alert-success alert-danger')
+            .addClass('alert-' + (type === 'success' ? 'success' : 'danger'))
+            .text(msg);
+        setTimeout(function() { $box.addClass('d-none'); }, 3000);
     }
-
-    function setTitle(fileName) {
-        const span = $('#swmFileName');
-        if (!span) return;
-
-        fileName = (fileName || '').trim();
-        if (fileName) {
-            span.textContent = '“' + fileName + '”';
-            span.title = fileName;
-            span.style.display = '';
+    
+    // Update copy link button visibility
+    function updateCopyButton() {
+        var status = $('#swmAccessStatus').val();
+        if (status === '1') {
+            $('#swmCopyLinkGroup').show();
         } else {
-            span.textContent = '';
-            span.removeAttribute('title');
-            span.style.display = 'none';
+            $('#swmCopyLinkGroup').hide();
         }
     }
-
-    async function api(url, { method = 'GET', data = null } = {}) {
-        const opt = {
-            method,
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-            },
-        };
-
-        if (data && method !== 'GET') {
-            if (data instanceof FormData) {
-                opt.body = data;
-            } else {
-                opt.headers['Content-Type'] = 'application/json';
-                opt.body = JSON.stringify(data);
-            }
-        }
-
-        const res = await fetch(url, opt);
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw (json.message || 'Request failed');
-        return json;
-    }
-
-    function escapeHtml(str) {
-        return (str || '').replace(/[&<>"']/g, (s) => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
-        }[s]));
-    }
-
-    function renderPeopleList(people, ownerInfo, uploaderInfo = null) {
-        const container = $('#swmPeopleList');
-        const section   = $('#swmPeopleSection');
-        if (!container || !section) return;
-
-        if ((!people || !Array.isArray(people) || people.length === 0) && !ownerInfo && !uploaderInfo) {
-            section.style.display = 'none';
-            container.innerHTML = '';
-            return;
-        }
-
-        section.style.display = 'block';
-        let peopleHtml = '';
-
-        const ownerId    = ownerInfo?.id ?? null;
-        const ownerEmail = ownerInfo?.email || '';
-        const ownerName  = ownerInfo?.name  || ownerEmail;
-
-        const uploaderId    = uploaderInfo?.id ?? null;
-        const uploaderEmail = uploaderInfo?.email || '';
-        const uploaderName  = uploaderInfo?.name  || uploaderEmail;
-
-        const hasDifferentUploader =
-            uploaderInfo && ownerInfo && uploaderId && ownerId && uploaderId !== ownerId;
-
-        if (hasDifferentUploader) {
-            peopleHtml += `
-                <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
-                    <div class="d-flex align-items-center flex-grow-1">
-                        <div class="avatar me-2">
-                            <div class="bg-success rounded-circle d-flex align-items-center justify-content-center text-white"
-                                style="width:32px;height:32px;font-size:14px;">
-                                ${escapeHtml(uploaderName).charAt(0).toUpperCase()}
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="fw-medium">${escapeHtml(uploaderName)}</div>
-                            <div class="text-muted small">${escapeHtml(uploaderEmail)}</div>
-                        </div>
-                    </div>
-                    <span class="badge bg-success">Owner</span>
-                </div>
-            `;
-
-            peopleHtml += `
-                <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
-                    <div class="d-flex align-items-center flex-grow-1">
-                        <div class="avatar me-2">
-                            <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center text-white"
-                                style="width:32px;height:32px;font-size:14px;">
-                                ${escapeHtml(ownerName).charAt(0).toUpperCase()}
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="fw-medium">${escapeHtml(ownerName)}</div>
-                            <div class="text-muted small">${escapeHtml(ownerEmail)}</div>
-                        </div>
-                    </div>
-                    <span class="badge bg-primary">Editor</span>
-                </div>
-            `;
-        } else if (ownerInfo) {
-            peopleHtml += `
-                <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
-                    <div class="d-flex align-items-center flex-grow-1">
-                        <div class="avatar me-2">
-                            <div class="bg-success rounded-circle d-flex align-items-center justify-content-center text-white"
-                                style="width:32px;height:32px;font-size:14px;">
-                                ${escapeHtml(ownerName).charAt(0).toUpperCase()}
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="fw-medium">${escapeHtml(ownerName)}</div>
-                            <div class="text-muted small">${escapeHtml(ownerEmail)}</div>
-                        </div>
-                    </div>
-                    <span class="badge bg-success">Owner</span>
-                </div>
-            `;
-        }
-
-        if (people && Array.isArray(people)) {
-            people.forEach(person => {
-                const email      = person.recipient_email || person.email || '';
-                const name       = person.recipient_name || person.name || email;
-                const permission = person.permission || 'view';
-                const status     = person.status || 'active';
-                const isActive   = status === 'active' && !person.revoked_at && !person.expired;
-
-                let badgeText = permission === 'edit' ? 'Editor' : 'Viewer';
-                let badgeClass = 'bg-primary text-white';
-
-                let statusText = '';
-                let statusClass = '';
-                if (!isActive) {
-                    statusText  = person.revoked_at ? 'Revoked' : 'Expired';
-                    statusClass = 'text-danger';
-                }
-
-                peopleHtml += `
-                    <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
-                        <div class="d-flex align-items-center flex-grow-1">
-                            <div class="avatar me-2">
-                                <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center text-white"
-                                    style="width:32px;height:32px;font-size:14px;">
-                                    ${escapeHtml(name).charAt(0).toUpperCase()}
-                                </div>
-                            </div>
-                            <div class="flex-grow-1">
-                                <div class="fw-medium">${escapeHtml(name)}</div>
-                                <div class="text-muted small">${escapeHtml(email)}</div>
-                                ${statusText ? `<div class="small ${statusClass}">${statusText}</div>` : ''}
-                            </div>
-                        </div>
-                        <div class="d-flex align-items-center">
-                            <div class="dropdown me-2">
-                                <button class="btn btn-sm ${badgeClass} dropdown-toggle" type="button" data-bs-toggle="dropdown"
-                                        data-share-id="${person.id}" ${!isActive ? 'disabled' : ''}>
-                                    ${badgeText}
-                                </button>
-                                <ul class="dropdown-menu dropdown-menu-end">
-                                    <li><a class="dropdown-item change-permission" href="#" data-permission="view" data-share-id="${person.id}">Viewer</a></li>
-                                    <li><a class="dropdown-item change-permission" href="#" data-permission="edit" data-share-id="${person.id}">Editor</a></li>
-                                </ul>
-                            </div>
-                            ${isActive ? `
-                            <button type="button" class="btn btn-sm btn-outline-danger remove-person"
-                                    data-share-id="${person.id}" title="Remove access">
-                                <i class="fas fa-times"></i>
-                            </button>` : ''}
-                        </div>
-                    </div>
-                `;
-            });
-        }
-
-        container.innerHTML = peopleHtml;
-
-        container.querySelectorAll('.remove-person').forEach(btn => {
-            btn.addEventListener('click', function () {
-                removePersonAccess(this.getAttribute('data-share-id'));
-            });
-        });
-
-        container.querySelectorAll('.change-permission').forEach(link => {
-            link.addEventListener('click', function (e) {
-                e.preventDefault();
-                updatePersonPermission(this.getAttribute('data-share-id'), this.getAttribute('data-permission'));
-            });
-        });
-    }
-
-    async function removePersonAccess(shareId) {
-        if (!confirm('Are you sure you want to remove access for this person?')) return;
-
-        try {
-            const response = await api(`/user/shares/${shareId}/remove`, { method: 'DELETE' });
-            showAlert(response.message || 'Access removed successfully', 'success');
-            await loadPeopleWithAccess();
-        } catch (err) {
-            console.error(err);
-            showAlert(err.toString() || 'Failed to remove access', 'danger');
-        }
-    }
-
-    async function updatePersonPermission(shareId, newPermission) {
-        try {
-            const response = await api(`/user/shares/${shareId}/update-permission`, {
-                method: 'PUT',
-                data: { permission: newPermission }
-            });
-            showAlert(response.message || 'Permission updated successfully', 'success');
-            await loadPeopleWithAccess();
-        } catch (err) {
-            console.error(err);
-            showAlert(err.toString() || 'Failed to update permission', 'danger');
-        }
-    }
-
-    async function loadPeopleWithAccess() {
+    
+    // Load file data
+    function loadFileData() {
         if (!currentSharedId) return;
-        try {
-            const response = await api(`{{ url('user/files') }}/${currentSharedId}/shared-people`);
-            renderPeopleList(response.people || [], response.owner || null, response.uploader || null);
-        } catch (err) {
-            console.error(err);
-            renderPeopleList([], { email: 'Current User', name: 'Owner' }, null);
-        }
-    }
-
-    function debounce(fn, ms = 200) {
-        let t;
-        return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
-    }
-
-    function closeTypeahead() {
-        const dd = $('#swmTypeahead');
-        if (!dd) return;
-        dd.classList.remove('show');
-        suggest.open = false;
-        suggest.activeIndex = -1;
-    }
-
-    function openTypeahead() {
-        const dd = $('#swmTypeahead');
-        if (!dd) return;
-        dd.classList.add('show');
-        suggest.open = true;
-    }
-
-    function renderTypeahead(q) {
-        const dd = $('#swmTypeahead');
-        if (!dd) return;
-
-        dd.innerHTML = '';
-        const emailVal = (q || '').trim();
-        const items = suggest.items || [];
-
-        if (!items.length && !emailVal) {
-            closeTypeahead();
-            return;
-        }
-
-        items.forEach((r, idx) => {
-            const el = document.createElement('button');
-            el.type = 'button';
-            el.className = 'dropdown-item' + (idx === suggest.activeIndex ? ' active' : '');
-            el.innerHTML = `
-                <span class="name"><strong>${escapeHtml(r.name || r.email)}</strong></span>
-                ${r.name ? `<span class="email">${escapeHtml(r.email)}</span>` : ''}
-            `;
-            el.addEventListener('mousedown', (ev) => {
-                ev.preventDefault();
-                $('#swmEmail').value = r.email;
-                closeTypeahead();
-            });
-            dd.appendChild(el);
+        
+        $.ajax({
+            url: baseUrl + '/' + currentSharedId,
+            type: 'GET',
+            headers: { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            success: function(response) {
+                $('#swmAccessStatus').val(response.access_status || '0');
+                currentDownloadLink = response.download_link || '';
+                updateCopyButton();
+                loadPeople();
+            },
+            error: function() {
+                $('#swmAccessStatus').val('0');
+                updateCopyButton();
+            }
         });
-
-        dd.classList.add('show');
-        suggest.open = true;
     }
-
-    const fetchSuggestions = debounce(async (q = '') => {
-        try {
-            const r = await api(`{{ url('user/shares/recipients') }}?limit=20&q=${encodeURIComponent(q)}`);
-            suggest.items = Array.isArray(r.recipients) ? r.recipients : [];
-            renderTypeahead(q);
-        } catch {
-            suggest.items = [];
-            renderTypeahead(q);
-        }
-    }, 200);
-
-    function updateCopyLinkButton() {
-        const accessStatus = $('#swmAccessStatus')?.value;
-        const copyGroup = $('#swmCopyLinkGroup');
-        const copyBtn = $('#swmCopyLink');
-        if (!copyGroup || !copyBtn) return;
-
-        if (accessStatus === '1') {
-            copyGroup.style.display = 'block';
-            copyBtn.disabled = false;
-        } else {
-            copyGroup.style.display = 'none';
-            copyBtn.disabled = true;
-        }
+    
+    // Load people with access
+    function loadPeople() {
+        if (!currentSharedId) return;
+        
+        $.ajax({
+            url: baseUrl + '/' + currentSharedId + '/shared-people',
+            type: 'GET',
+            headers: { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            success: function(response) {
+                renderPeopleList(response.people || [], response.owner, response.uploader);
+            },
+            error: function() {
+                renderPeopleList([], null, null);
+            }
+        });
     }
-
-    async function copyToClipboard(text) {
-        if (!text || !text.trim()) {
-            showAlert('{{ __("No link available to copy.") }}', 'danger');
+    
+    // Render people list
+    function renderPeopleList(people, owner, uploader) {
+        var $container = $('#swmPeopleList');
+        var $section = $('#swmPeopleSection');
+        
+        if (!$container.length) return;
+        
+        if (!people.length && !owner) {
+            $section.hide();
             return;
         }
-
-        if (navigator.clipboard && window.isSecureContext) {
-            try {
-                await navigator.clipboard.writeText(text);
-                showAlert('{{ __("Link copied to clipboard!") }}', 'success');
-                return;
-            } catch (e) {}
+        
+        $section.show();
+        var html = '';
+        
+        // Owner
+        if (owner) {
+            var ownerName = owner.name || owner.email || 'Owner';
+            html += '<div class="person-item d-flex align-items-center py-2 border-bottom">' +
+                '<div class="avatar me-2"><div class="bg-success rounded-circle d-flex align-items-center justify-content-center text-white" style="width:32px;height:32px;">' + 
+                ownerName.charAt(0).toUpperCase() + '</div></div>' +
+                '<div class="flex-grow-1"><div class="fw-medium">' + escapeHtml(ownerName) + '</div>' +
+                '<div class="text-muted small">' + escapeHtml(owner.email || '') + '</div></div>' +
+                '<span class="badge bg-success">{{ __("Owner") }}</span></div>';
         }
-
-        const temp = document.createElement('textarea');
-        temp.value = text;
-        temp.style.position = 'fixed';
-        temp.style.left = '-9999px';
-        document.body.appendChild(temp);
-        temp.select();
+        
+        // Shared people
+        for (var i = 0; i < people.length; i++) {
+            var person = people[i];
+            var email = person.recipient_email || person.email || '';
+            var name = person.recipient_name || person.name || email;
+            var perm = person.permission === 'edit' ? '{{ __("Editor") }}' : '{{ __("Viewer") }}';
+            var isActive = person.status === 'active' && !person.revoked_at;
+            
+            html += '<div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">' +
+                '<div class="d-flex align-items-center flex-grow-1">' +
+                '<div class="avatar me-2"><div class="bg-primary rounded-circle d-flex align-items-center justify-content-center text-white" style="width:32px;height:32px;">' + 
+                name.charAt(0).toUpperCase() + '</div></div>' +
+                '<div class="flex-grow-1"><div class="fw-medium">' + escapeHtml(name) + '</div>' +
+                '<div class="text-muted small">' + escapeHtml(email) + '</div></div></div>' +
+                '<div class="d-flex align-items-center">' +
+                '<div class="dropdown me-2"><button class="btn btn-sm bg-primary text-white dropdown-toggle" data-bs-toggle="dropdown"' + (!isActive ? ' disabled' : '') + '>' + perm + '</button>' +
+                '<ul class="dropdown-menu dropdown-menu-end">' +
+                '<li><a class="dropdown-item change-perm" href="#" data-perm="view" data-id="' + person.id + '">{{ __("Viewer") }}</a></li>' +
+                '<li><a class="dropdown-item change-perm" href="#" data-perm="edit" data-id="' + person.id + '">{{ __("Editor") }}</a></li></ul></div>' +
+                (isActive ? '<button type="button" class="btn btn-sm btn-outline-danger remove-person" data-id="' + person.id + '"><i class="fas fa-times"></i></button>' : '') +
+                '</div></div>';
+        }
+        
+        $container.html(html);
+        
+        // Bind events
+        $container.find('.remove-person').off('click').on('click', function() {
+            var id = $(this).data('id');
+            if (confirm('{{ __("Are you sure you want to remove access?") }}')) {
+                removePerson(id);
+            }
+        });
+        
+        $container.find('.change-perm').off('click').on('click', function(e) {
+            e.preventDefault();
+            var id = $(this).data('id');
+            var perm = $(this).data('perm');
+            updatePermission(id, perm);
+        });
+    }
+    
+    // Remove person
+    function removePerson(shareId) {
+        $.ajax({
+            url: '/user/shares/' + shareId + '/remove',
+            type: 'DELETE',
+            headers: { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            success: function(response) {
+                showAlert(response.message || '{{ __("Access removed") }}', 'success');
+                loadPeople();
+            },
+            error: function(xhr) {
+                showAlert(xhr.responseJSON?.message || '{{ __("Failed to remove") }}', 'danger');
+            }
+        });
+    }
+    
+    // Update permission
+    function updatePermission(shareId, perm) {
+        $.ajax({
+            url: '/user/shares/' + shareId + '/update-permission',
+            type: 'PUT',
+            contentType: 'application/json',
+            headers: { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            data: JSON.stringify({ permission: perm }),
+            success: function(response) {
+                showAlert(response.message || '{{ __("Permission updated") }}', 'success');
+                loadPeople();
+            },
+            error: function(xhr) {
+                showAlert(xhr.responseJSON?.message || '{{ __("Failed to update") }}', 'danger');
+            }
+        });
+    }
+    
+    // Update access status
+    function updateAccessStatus() {
+        if (!currentSharedId) return;
+        
+        var status = $('#swmAccessStatus').val();
+        $('#swmAccessStatus').prop('disabled', true);
+        
+        $.ajax({
+            url: '/user/files/' + currentSharedId + '/update-status',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            data: JSON.stringify({ access_status: status }),
+            success: function(response) {
+                currentDownloadLink = response.download_link || currentDownloadLink;
+                updateCopyButton();
+                showAlert('{{ __("Status updated") }}', 'success');
+            },
+            error: function(xhr) {
+                showAlert(xhr.responseJSON?.message || '{{ __("Failed to update status") }}', 'danger');
+            },
+            complete: function() {
+                $('#swmAccessStatus').prop('disabled', false);
+            }
+        });
+    }
+    
+    // Submit share form
+    function submitShare() {
+        if (!currentSharedId) {
+            showAlert('{{ __("File ID missing") }}', 'danger');
+            return;
+        }
+        
+        var email = $('#swmEmail').val().trim();
+        var permission = $('#swmPermission').val() || 'view';
+        var accessStatus = $('#swmAccessStatus').val();
+        var $btn = $('#swmForm button[type="submit"]');
+        
+        // Validate email if provided
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            showAlert('{{ __("Please enter a valid email address") }}', 'danger');
+            $('#swmEmail').focus();
+            return;
+        }
+        
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> {{ __("Sharing...") }}');
+        
+        var data = { access_status: accessStatus };
+        if (email) {
+            data.recipients = email;
+            data.permission = permission;
+        }
+        
+        $.ajax({
+            url: baseUrl + '/' + currentSharedId + '/share',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            data: JSON.stringify(data),
+            success: function(response) {
+                showAlert(response.message || '{{ __("Shared successfully") }}', 'success');
+                $('#swmEmail').val('');
+                if (response.download_link) {
+                    currentDownloadLink = response.download_link;
+                }
+                updateCopyButton();
+                loadPeople();
+            },
+            error: function(xhr) {
+                showAlert(xhr.responseJSON?.message || '{{ __("Sharing failed") }}', 'danger');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).text('{{ __("Share") }}');
+            }
+        });
+    }
+    
+    // Copy link
+    function copyLink() {
+        if (!currentDownloadLink) {
+            showAlert('{{ __("No link available") }}', 'danger');
+            return;
+        }
+        
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(currentDownloadLink).then(function() {
+                showAlert('{{ __("Link copied!") }}', 'success');
+            }).catch(function() {
+                fallbackCopy(currentDownloadLink);
+            });
+        } else {
+            fallbackCopy(currentDownloadLink);
+        }
+    }
+    
+    function fallbackCopy(text) {
+        var $temp = $('<textarea>').val(text).css({ position: 'fixed', left: '-9999px' }).appendTo('body');
+        $temp[0].select();
         try {
             document.execCommand('copy');
-            showAlert('{{ __("Link copied to clipboard!") }}', 'success');
-        } catch (e) {
-            showAlert('{{ __("Failed to copy link.") }}', 'danger');
+            showAlert('{{ __("Link copied!") }}', 'success');
+        } catch(e) {
+            showAlert('{{ __("Failed to copy") }}', 'danger');
         }
-        document.body.removeChild(temp);
+        $temp.remove();
     }
-
-    async function updateAccessStatus() {
-        if (!currentSharedId) {
-            showAlert('{{ __("File ID is missing. Please close and try again.") }}', 'danger');
+    
+    function escapeHtml(str) {
+        return $('<div>').text(str || '').html();
+    }
+    
+    // Initialize on document ready
+    $(function() {
+        var $modal = $('#sharedWithMeModal');
+        
+        if (!$modal.length) {
+            console.warn('Share modal not found');
             return;
         }
-
-        const accessStatus = $('#swmAccessStatus').value;
-        $('#swmAccessStatus').disabled = true;
-
-        try {
-            const response = await api(`/user/files/${currentSharedId}/update-status`, {
-                method: 'POST',
-                data: { access_status: accessStatus },
-            });
-
-            currentDownloadLink = response.download_link || currentDownloadLink || '';
-            $('#swmAccessStatus').value = response.access_status ?? accessStatus;
-
-            updateCopyLinkButton();
-            showAlert('{{ __("Status updated") }}', 'success');
-        } catch (err) {
-            console.error(err);
-            showAlert(err.toString() || '{{ __("Failed to update access status.") }}', 'danger');
-        } finally {
-            $('#swmAccessStatus').disabled = false;
-        }
-    }
-
-    // ===== modal wiring =====
-    const sharedWithMeModalEl = document.getElementById('sharedWithMeModal');
-    if (!sharedWithMeModalEl) return;
-
-    sharedWithMeModalEl.addEventListener('show.bs.modal', async function (event) {
-        const button = event.relatedTarget;
-        currentSharedId = button?.getAttribute('data-file-id');
-        currentType = (button?.getAttribute('data-file-type') || 'file').toLowerCase();
-        const fileName = button?.getAttribute('data-file-name') || '';
-        const shareData = button?.getAttribute('data-share') || '';
-
-        setTitle(fileName);
-
-        $('#swmForm')?.reset();
-        if ($('#swmPermission')) $('#swmPermission').value = 'view';
-        if ($('#swmEmail')) $('#swmEmail').value = '';
-        closeTypeahead();
-
-        try {
-            const response = await api(`{{ url('user/files') }}/${currentSharedId}`);
-            $('#swmAccessStatus').value = response.access_status ?? '0';
-            currentDownloadLink = response.download_link || '';
-            updateCopyLinkButton();
-            await loadPeopleWithAccess();
-        } catch (e) {
-            try {
-                const parsed = shareData ? JSON.parse(shareData) : {};
-                currentDownloadLink = parsed.download_link || '';
-            } catch {}
-            $('#swmAccessStatus').value = '0';
-            updateCopyLinkButton();
-            renderPeopleList([], null, null);
-        }
-
-        $('#swmCopyLink').onclick = () => copyToClipboard(currentDownloadLink);
-    });
-
-    sharedWithMeModalEl.addEventListener('hidden.bs.modal', function () {
-        currentSharedId = null;
-        currentDownloadLink = '';
-        closeTypeahead();
-    });
-
-    // ===== inputs wiring =====
-    const emailInput = $('#swmEmail');
-    if (emailInput) {
-        emailInput.addEventListener('input', (e) => {
-            const q = e.target.value || '';
-            suggest.lastQuery = q;
-
-            if (q.trim().length >= MIN_CHARS_TO_SUGGEST) {
-                fetchSuggestions(q);
-                openTypeahead();
-            } else {
-                closeTypeahead();
-            }
+        
+        // Modal show
+        $modal.on('show.bs.modal', function(event) {
+            var $btn = $(event.relatedTarget);
+            currentSharedId = $btn.data('file-id');
+            var fileName = $btn.data('file-name') || '';
+            
+            // Set title
+            $('#swmFileName').text(fileName ? '"' + fileName + '"' : '');
+            
+            // Reset form
+            $('#swmForm')[0]?.reset();
+            $('#swmEmail').val('');
+            
+            // Load data
+            loadFileData();
         });
-
-        emailInput.addEventListener('blur', () => setTimeout(closeTypeahead, 120));
-    }
-
-    $('#swmAccessStatus')?.addEventListener('change', updateAccessStatus);
-
-    // ===== form submit (AJAX) =====
-    const swmForm = $('#swmForm');
-    if (swmForm) {
-
-        // ✅ overwrite any old submit handler (prevents double binding)
-        swmForm.onsubmit = async (e) => {
+        
+        // Modal hide
+        $modal.on('hidden.bs.modal', function() {
+            currentSharedId = null;
+            currentDownloadLink = '';
+        });
+        
+        // Access status change
+        $('#swmAccessStatus').on('change', updateAccessStatus);
+        
+        // Form submit
+        $('#swmForm').on('submit', function(e) {
             e.preventDefault();
-
-            // ✅ block duplicate submits (this stops 2nd request)
-            if (swmForm.dataset.sending === '1') return;
-            swmForm.dataset.sending = '1';
-
-            if (!currentSharedId) {
-                showAlert('{{ __("File ID is missing. Please close and try again.") }}', 'danger');
-                swmForm.dataset.sending = '0';
-                return;
-            }
-
-            const accessStatus = $('#swmAccessStatus').value;
-            const email = (emailInput?.value || '').trim();
-            const submitBtn = swmForm.querySelector('button[type="submit"]');
-
-            if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                showAlert('{{ __("Please enter a valid email address.") }}', 'danger');
-                emailInput?.focus();
-                swmForm.dataset.sending = '0';
-                return;
-            }
-
-            if (submitBtn) {
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> {{ __("Sharing...") }}';
-            }
-
-            try {
-                const fd = new FormData(swmForm);
-                fd.set('access_status', accessStatus);
-
-                if (email) {
-                    fd.set('recipients', email);
-                    fd.set('permission', $('#swmPermission')?.value ?? 'view');
-                }
-
-                const response = await api(`{{ url('user/files') }}/${currentSharedId}/share`, {
-                    method: 'POST',
-                    data: fd,
-                });
-
-                if (response.download_link) currentDownloadLink = response.download_link;
-
-                showAlert(response.message || '{{ __("Shared successfully") }}', 'success');
-
-                if (emailInput) emailInput.value = '';
-                closeTypeahead();
-                updateCopyLinkButton();
-                await loadPeopleWithAccess();
-
-            } catch (err) {
-                console.error(err);
-                showAlert(err.toString() || '{{ __("Sharing failed. Please try again.") }}', 'danger');
-            } finally {
-                // ✅ always unlock + re-enable button
-                swmForm.dataset.sending = '0';
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = '{{ __("Share") }}';
-                }
-            }
-        };
-    }
-
-})(); // executes the IIFE
-
-});
+            submitShare();
+        });
+        
+        // Copy link
+        $('#swmCopyLink').on('click', copyLink);
+    });
+    
+})(jQuery);
 </script>
 @endpush
-

@@ -1,606 +1,590 @@
 /**
- * FILE REQUESTS PAGE MODULE
- * Handles:
- * - Create Request
- * - Share
- * - Manage Request
- * - Table actions
+ * FILE REQUESTS PAGE MODULE - jQuery Optimized
+ * Handles: Create Request, Share, Manage Request, Table actions, Folder Picker
  */
+(function ($) {
+    'use strict';
 
-document.addEventListener("DOMContentLoaded", () => {
-    const csrfToken           = document.querySelector('meta[name="csrf-token"]')?.content || "";
-    const defaultFolderSharedId   = window.DEFAULT_FILE_REQUEST_FOLDER       || null;
-    const defaultFolderName       = window.DEFAULT_FILE_REQUEST_FOLDER_NAME  || null;
-    const defaultFolderLabel      = window.DEFAULT_FILE_REQUEST_FOLDER_LABEL || null;
-    const $  = (id) => document.getElementById(id);
-    const qs = (sel) => document.querySelector(sel);
+    // Prevent duplicate initialization
+    if (window.FileRequestsInitialized) {
+        console.warn('FileRequests: already initialized, skipping');
+        return;
+    }
+    window.FileRequestsInitialized = true;
 
-    /* ======================================================
-     * Simple helpers
-     * ====================================================== */
-    const noop = () => {};
+    // ============================================================
+    // CONFIGURATION
+    // ============================================================
 
-    function jsonFetch(url, options = {}) {
-        return fetch(url, options).then(async (r) => {
-            const data = await r.json().catch(() => ({}));
-            return { ok: r.ok, data };
-        });
+    var csrfToken = $('meta[name="csrf-token"]').attr('content') || '';
+    var defaultFolderSharedId = window.DEFAULT_FILE_REQUEST_FOLDER || null;
+    var defaultFolderName = window.DEFAULT_FILE_REQUEST_FOLDER_NAME || null;
+    var defaultFolderLabel = window.DEFAULT_FILE_REQUEST_FOLDER_LABEL || null;
+
+    // ============================================================
+    // CACHED DOM ELEMENTS
+    // ============================================================
+
+    var $createModal = $('#fileRequestCreateModal');
+    var $shareModal = $('#fileRequestShareModal');
+    var $manageModal = $('#fileRequestManageModal');
+    var $folderPickerModal = $('#folderPickerModal');
+    var $createForm = $('#fileRequestCreateForm');
+    var $manageForm = $('#fileRequestManageForm');
+
+    // ============================================================
+    // MODAL INSTANCES (lazy init)
+    // ============================================================
+
+    var modals = { create: null, share: null, manage: null, folder: null };
+
+    function getModal(type) {
+        if (modals[type]) return modals[type];
+
+        var $el = null;
+        switch (type) {
+            case 'create': $el = $createModal; break;
+            case 'share': $el = $shareModal; break;
+            case 'manage': $el = $manageModal; break;
+            case 'folder': $el = $folderPickerModal; break;
+        }
+
+        if ($el && $el.length) {
+            modals[type] = new bootstrap.Modal($el[0], { backdrop: 'static' });
+        }
+        return modals[type];
     }
 
-    function setBtnLoading(btn, isLoading, loadingText) {
-        if (!btn) return;
-        if (!btn.dataset.originalHtml) {
-            btn.dataset.originalHtml = btn.innerHTML;
-        }
-        if (isLoading) {
-            btn.disabled = true;
-            btn.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>${loadingText}`;
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = btn.dataset.originalHtml;
-        }
-    }
+    // ============================================================
+    // STATE
+    // ============================================================
 
-    /* ======================================================
-     * Modal Setup
-     * ====================================================== */
-    const createModalEl = $("fileRequestCreateModal");
-    const shareModalEl  = $("fileRequestShareModal");
-    const manageModalEl = $("fileRequestManageModal");
+    var allFolders = [];
+    var activeFolderTarget = 'create';
 
-    const createModal = createModalEl ? new bootstrap.Modal(createModalEl, { backdrop: "static" }) : null;
-    const shareModal  = shareModalEl  ? new bootstrap.Modal(shareModalEl,  { backdrop: "static" }) : null;
-    const manageModal = manageModalEl ? new bootstrap.Modal(manageModalEl, { backdrop: "static" }) : null;
+    // ============================================================
+    // HELPER FUNCTIONS
+    // ============================================================
 
-    const createForm = $("fileRequestCreateForm");
-    const btnCreateSubmit = $("btnCreateRequestSubmit");
-
-    const shareFormId  = $("shareFileRequestId");
-    const shareEmails  = $("shareEmails");
-    const shareMsg     = $("shareMessage");
-    const shareLink    = $("shareLinkInput");
-    const btnCopyShare = $("btnCopyShareLink");
-    const btnSendShare = $("btnSendShareRequest");
-
-    const manageForm   = $("fileRequestManageForm");
-    const manageId     = $("manageFileRequestId");
-    const manageTitle  = $("manageTitle");
-    const manageDesc   = $("manageDescription");
-    const manageFolderText = $("manageFolderText");
-    const manageFolderId   = $("manageFolderId");
-    const manageDate   = $("manageExpirationDate");
-    const manageTime   = $("manageExpirationTime");
-    const managePass   = $("managePassword");
-    const manageRemovePass = $("manageRemovePassword");
-    const manageViews  = $("manageViewsCount");
-    const manageUploads = $("manageUploadsCount");
-    const passwordStatusBadge  = $("passwordStatusBadge");
-    const passwordRemovalBadge = $("passwordRemovalBadge");
-    const passwordHelp         = $("managePasswordHelp");
-
-    const btnSaveManage = $("btnSaveFileRequest");
-    const btnCloseReq   = $("btnCloseFileRequest");
-
-    /* ======================================================
-     * Modal Cleanup - Fix backdrop issue
-     * ====================================================== */
     function cleanupModals() {
-        document.querySelectorAll(".modal-backdrop").forEach((backdrop) => backdrop.remove());
-        document.body.classList.remove("modal-open");
-        document.body.style.overflow = "";
-        document.body.style.paddingRight = "";
+        $('.modal-backdrop').remove();
+        $('body').removeClass('modal-open').css({ overflow: '', paddingRight: '' });
     }
 
-    [createModalEl, shareModalEl, manageModalEl].forEach((modalEl) => {
-        if (!modalEl) return;
-        modalEl.addEventListener("hidden.bs.modal", () => {
-            setTimeout(cleanupModals, 100);
-        });
+    function setBtnLoading($btn, isLoading, text) {
+        if (!$btn || !$btn.length) return;
+
+        if (!$btn.data('original-html')) {
+            $btn.data('original-html', $btn.html());
+        }
+
+        if (isLoading) {
+            $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-2"></i>' + (text || 'Loading...'));
+        } else {
+            $btn.prop('disabled', false).html($btn.data('original-html'));
+        }
+    }
+
+    function api(url, options) {
+        var defaults = {
+            url: url,
+            type: 'GET',
+            dataType: 'json',
+            headers: {
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        };
+        return $.ajax($.extend(true, defaults, options || {}));
+    }
+
+    function escapeHtml(text) {
+        return $('<div>').text(text || '').html();
+    }
+
+    function copyToClipboard(text, successMsg, errorMsg) {
+        if (!text) {
+            toastr.error(errorMsg || 'No link available');
+            return;
+        }
+
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text)
+                .then(function () { toastr.success(successMsg || 'Copied!'); })
+                .catch(function () { fallbackCopy(text, successMsg, errorMsg); });
+        } else {
+            fallbackCopy(text, successMsg, errorMsg);
+        }
+    }
+
+    function fallbackCopy(text, successMsg, errorMsg) {
+        var $temp = $('<textarea>').val(text).css({ position: 'fixed', left: '-9999px' }).appendTo('body');
+        $temp[0].select();
+        try {
+            document.execCommand('copy');
+            toastr.success(successMsg || 'Copied!');
+        } catch (e) {
+            toastr.error(errorMsg || 'Failed to copy');
+        }
+        $temp.remove();
+    }
+
+    // ============================================================
+    // MODAL CLEANUP ON HIDE
+    // ============================================================
+
+    $createModal.add($manageModal).add($folderPickerModal).on('hidden.bs.modal', function () {
+        setTimeout(cleanupModals, 100);
     });
 
-    /* ======================================================
-     * Create Request
-     * ====================================================== */
-    const btnCreateFileRequest = $("btnCreateFileRequest");
+    // Share modal - reload page after close (native event for Bootstrap compatibility)
+    var shareModalElement = document.getElementById('fileRequestShareModal');
+    if (shareModalElement) {
+        shareModalElement.addEventListener('hidden.bs.modal', function () {
+            cleanupModals();
+            setTimeout(function () {
+                window.location.reload();
+            }, 100);
+        });
+    }
 
-    btnCreateFileRequest?.addEventListener("click", () => {
-        if (!createForm || !createModal) return;
+    // ============================================================
+    // CREATE REQUEST
+    // ============================================================
 
-        createForm.reset();
+    $('#btnCreateFileRequest').on('click', function () {
+        var modal = getModal('create');
+        if (!modal) return;
 
-        const folderTextField    = $("frSelectedFolderText");
-        const frSelectedFolderId = $("frSelectedFolderId");
+        var $folderText = $('#frSelectedFolderText');
+        var $folderId = $('#frSelectedFolderId');
+        var defaultLabel = $folderText.data('default-label') || 'Root';
 
-        const defaultLabelLocal = folderTextField?.dataset.defaultLabel || "Root";
+        if ($createForm.length) $createForm[0].reset();
 
-        if (defaultFolderSharedId && frSelectedFolderId) {
-            // We came from /user/file-requests?folder=SHARED_ID
-            frSelectedFolderId.value = defaultFolderSharedId;
-
-            if (folderTextField) {
-                folderTextField.value =
-                    defaultFolderLabel ||
-                    defaultFolderName  ||
-                    defaultLabelLocal;
-            }
+        if (defaultFolderSharedId && $folderId.length) {
+            $folderId.val(defaultFolderSharedId);
+            $folderText.val(defaultFolderLabel || defaultFolderName || defaultLabel);
         } else {
-            if (frSelectedFolderId) frSelectedFolderId.value = "";
-            if (folderTextField) folderTextField.value = defaultLabelLocal;
+            $folderId.val('');
+            $folderText.val(defaultLabel);
         }
 
         cleanupModals();
-        createModal.show();
+        modal.show();
     });
 
-    // Auto-populate "Folder for uploaded files" from Folder name input
-    const folderNameInput  = createForm?.querySelector('input[name="folder_name"]');
-    const frSelectedFolderText = $("frSelectedFolderText");
+    // Auto-populate folder name from title input
+    $(document).on('input', '#fileRequestCreateForm input[name="folder_name"]', function () {
+        var $folderText = $('#frSelectedFolderText');
+        var defaultLabel = $folderText.data('default-label') || 'Root';
+        var val = $(this).val().trim();
+        $folderText.val(val || defaultLabel);
+    });
 
-    if (folderNameInput && frSelectedFolderText) {
-        const defaultLabelLocal = frSelectedFolderText.dataset.defaultLabel || "Root";
+    // Submit create form
+    $('#btnCreateRequestSubmit').on('click', function () {
+        var $btn = $(this);
+        if (!$createForm.length) return;
 
-        folderNameInput.addEventListener("input", () => {
-            const nameValue = folderNameInput.value.trim();
-            frSelectedFolderText.value = nameValue || defaultLabelLocal;
-        });
-    }
+        setBtnLoading($btn, true, 'Creating...');
 
-    if (btnCreateSubmit && !btnCreateSubmit.dataset.listenerAttached) {
-        btnCreateSubmit.dataset.listenerAttached = "true";
+        api('/user/file-requests', {
+            type: 'POST',
+            data: new FormData($createForm[0]),
+            processData: false,
+            contentType: false
+        })
+            .done(function (data) {
+                setBtnLoading($btn, false);
 
-        btnCreateSubmit.addEventListener("click", () => {
-            if (!createForm) return;
+                if (!data.success) {
+                    toastr.error(data.message || 'Failed to create request');
+                    return;
+                }
 
-            const formData = new FormData(createForm);
-            setBtnLoading(btnCreateSubmit, true, "Creating...");
+                toastr.success('Request created successfully');
+                getModal('create')?.hide();
 
-            jsonFetch(`/user/file-requests`, {
-                method: "POST",
-                headers: {
-                    "X-CSRF-TOKEN": csrfToken,
-                    "X-Requested-With": "XMLHttpRequest",
-                },
-                body: formData,
-            })
-                .then(({ ok, data }) => {
-                    setBtnLoading(btnCreateSubmit, false);
+                setTimeout(function () {
+                    cleanupModals();
 
-                    if (!ok || !data.success) {
-                        return toastr.error(data.message || "Request failed");
+                    var shareModal = getModal('share');
+                    if (!shareModal) {
+                        location.reload();
+                        return;
                     }
 
-                    createModal?.hide();
+                    $('#shareFileRequestId').val(data.id);
+                    $('#shareLinkInput').val(data.url || '');
+                    $('#shareEmails').val('');
+                    $('#shareMessage').val('');
 
-                    // Wait for create modal to close before opening share modal
-                    setTimeout(() => {
-                        cleanupModals();
-
-                        if (!shareModal) return;
-
-                        if (shareFormId) shareFormId.value = data.id;
-                        if (shareLink) shareLink.value = data.url || "";
-                        if (shareEmails) shareEmails.value = "";
-                        if (shareMsg) shareMsg.value = "";
-
-                        shareModal.show();
-                    }, 300);
-                })
-                .catch(() => {
-                    setBtnLoading(btnCreateSubmit, false);
-                    toastr.error("Request failed");
-                });
-        });
-    }
-
-    /* ======================================================
-     * Share – copy link
-     * ====================================================== */
-    btnCopyShare?.addEventListener("click", () => {
-        if (!shareLink) return;
-        const value = shareLink.value;
-        if (!navigator.clipboard || !value) {
-            toastr.error("Failed to copy");
-            return;
-        }
-        navigator.clipboard
-            .writeText(value)
-            .then(() => toastr.success("Link copied to clipboard"))
-            .catch(() => toastr.error("Failed to copy"));
-    });
-
-    /* ======================================================
-     * Share – send email
-     * ====================================================== */
-    btnSendShare?.addEventListener("click", () => {
-        if (!shareFormId) return;
-
-        jsonFetch(`/user/file-requests/${shareFormId.value}/share`, {
-            method: "POST",
-            headers: {
-                "X-CSRF-TOKEN": csrfToken,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                emails: shareEmails?.value || "",
-                message: shareMsg?.value || "",
-            }),
-        })
-            .then(({ data }) => {
-                if (!data.success) return toastr.error(data.message || "Failed to send invitations");
-                toastr.success("Invitation sent successfully");
-                shareModal?.hide();
-                setTimeout(() => {
-                    cleanupModals();
-                    location.reload();
-                }, 400);
+                    shareModal.show();
+                }, 300);
             })
-            .catch(() => toastr.error("Failed to send invitations"));
+            .fail(function (xhr) {
+                setBtnLoading($btn, false);
+                var msg = xhr.responseJSON?.message || 'Failed to create request';
+                toastr.error(msg);
+            });
     });
 
-    // Handle Share modal skip/close - reload page to show created request
-    if (shareModalEl && !shareModalEl.dataset.reloadListenerAttached) {
-        shareModalEl.dataset.reloadListenerAttached = "true";
+    // ============================================================
+    // SHARE REQUEST
+    // ============================================================
 
-        shareModalEl.addEventListener("hidden.bs.modal", () => {
-            setTimeout(() => {
-                cleanupModals();
-                location.reload();
-            }, 200);
-        });
-    }
+    $('#btnCopyShareLink').on('click', function () {
+        var link = $('#shareLinkInput').val();
+        copyToClipboard(link, 'Link copied to clipboard', 'No link available');
+    });
 
-    /* ======================================================
-     * Manage Request – open modal
-     * (delegated to document to avoid many listeners)
-     * ====================================================== */
-    document.addEventListener("click", (e) => {
-        const manageBtn = e.target.closest?.(".js-manage-request");
-        if (!manageBtn) return;
-
-        const id = manageBtn.dataset.id;
+    $('#btnSendShareRequest').on('click', function () {
+        var $btn = $(this);
+        var id = $('#shareFileRequestId').val();
         if (!id) return;
 
-        jsonFetch(`/user/file-requests/${id}`, {
-            headers: { Accept: "application/json" },
-        })
-            .then(({ data }) => {
-                if (!data) return;
+        var emails = $('#shareEmails').val() || '';
+        if (!emails.trim()) {
+            toastr.warning('Please enter at least one email address');
+            return;
+        }
 
-                if (manageId) manageId.value = data.id;
-                if (manageTitle) manageTitle.value = data.title || "";
-                if (manageDesc) manageDesc.value = data.description || "";
-                if (manageFolderText) manageFolderText.value = data.folder_path || "";
-                if (manageFolderId) manageFolderId.value = data.folder_shared_id || "";
-                if (manageViews) manageViews.textContent = data.views_count ?? "0";
-                if (manageUploads) manageUploads.textContent = data.uploads_count ?? "0";
+        setBtnLoading($btn, true, 'Sending...');
 
-                // Reset password toggle icon state
-                const togglePasswordIcon = $("togglePasswordIcon");
-                const btnTogglePassword = $("btnTogglePassword");
-                if (togglePasswordIcon) {
-                    togglePasswordIcon.classList.remove("fa-eye-slash");
-                    togglePasswordIcon.classList.add("fa-eye");
-                }
-
-                // Handle password status indicator
-                if (passwordStatusBadge && passwordRemovalBadge && passwordHelp) {
-                    if (data.password_protected) {
-                        // With password
-                        passwordStatusBadge.classList.remove("d-none");
-                        passwordRemovalBadge.classList.add("d-none");
-                        passwordHelp.textContent = "Leave blank to keep current password";
-
-                        if (managePass) {
-                            managePass.value = "";
-                            managePass.type = "password";
-                            managePass.placeholder = "Enter new password to change";
-                        }
-
-                        if (btnTogglePassword) {
-                            btnTogglePassword.classList.add("d-none");
-                        }
-                    } else {
-                        // Without password
-                        passwordStatusBadge.classList.add("d-none");
-                        passwordRemovalBadge.classList.add("d-none");
-                        passwordHelp.textContent = "Optional: Add a password to protect this link";
-
-                        if (managePass) {
-                            managePass.value = "";
-                            managePass.type = "password";
-                            managePass.placeholder = "Enter password";
-                        }
-
-                        if (btnTogglePassword) {
-                            btnTogglePassword.classList.add("d-none");
-                        }
-                    }
-                }
-
-                // Reset remove password flag
-                if (manageRemovePass) manageRemovePass.value = "0";
-
-                // Expiration
-                if (data.expires_at && manageDate && manageTime) {
-                    const dt = new Date(data.expires_at.replace(" ", "T"));
-                    manageDate.value = dt.toISOString().slice(0, 10);
-                    manageTime.value = dt.toTimeString().slice(0, 5);
-                }
-
-                // Storage limit
-                const manageLimitValue = $("manageStorageLimitValue");
-                const manageLimitUnit  = $("manageStorageLimitUnit");
-                if (manageLimitValue && manageLimitUnit) {
-                    if (data.storage_limit_value) {
-                        manageLimitValue.value = data.storage_limit_value;
-                        manageLimitUnit.value  = data.storage_limit_unit || "GB";
-                    } else {
-                        manageLimitValue.value = "";
-                        manageLimitUnit.value  = "GB";
-                    }
-                }
-
-                cleanupModals();
-                manageModal?.show();
+        api('/user/file-requests/' + id + '/share', {
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                emails: emails,
+                message: $('#shareMessage').val() || ''
             })
-            .catch(noop);
+        })
+            .done(function (data) {
+                setBtnLoading($btn, false);
+
+                if (!data.success) {
+                    toastr.error(data.message || 'Failed to send invitations');
+                    return;
+                }
+
+                toastr.success('Invitation sent successfully');
+                getModal('share')?.hide();
+            })
+            .fail(function (xhr) {
+                setBtnLoading($btn, false);
+                var msg = xhr.responseJSON?.message || 'Failed to send invitations';
+                toastr.error(msg);
+            });
     });
 
-    /* ======================================================
-     * Create Modal Password Toggle (Show/Hide)
-     * ====================================================== */
-    const createPass               = $("createPassword");
-    const btnToggleCreatePassword  = $("btnToggleCreatePassword");
-    const toggleCreatePasswordIcon = $("toggleCreatePasswordIcon");
+    // ============================================================
+    // MANAGE REQUEST - INSTANT MODAL OPEN
+    // ============================================================
 
-    if (btnToggleCreatePassword && createPass && toggleCreatePasswordIcon) {
-        btnToggleCreatePassword.addEventListener("click", () => {
-            const isPassword = createPass.type === "password";
-            createPass.type = isPassword ? "text" : "password";
-            toggleCreatePasswordIcon.classList.toggle("fa-eye", !isPassword);
-            toggleCreatePasswordIcon.classList.toggle("fa-eye-slash", isPassword);
-        });
-
-        createPass.addEventListener("input", () => {
-            const hasValue = createPass.value.trim().length > 0;
-            btnToggleCreatePassword.classList.toggle("d-none", !hasValue);
-
-            if (!hasValue) {
-                createPass.type = "password";
-                toggleCreatePasswordIcon.classList.remove("fa-eye-slash");
-                toggleCreatePasswordIcon.classList.add("fa-eye");
-            }
-        });
+    function resetManageFormToLoading() {
+        $('#manageFileRequestId').val('');
+        $('#manageTitle').val('').attr('placeholder', 'Loading...');
+        $('#manageDescription').val('').attr('placeholder', 'Loading...');
+        $('#manageFolderText').val('Loading...');
+        $('#manageFolderId').val('');
+        $('#manageViewsCount').text('-');
+        $('#manageUploadsCount').text('-');
+        $('#managePassword').val('').attr('placeholder', 'Loading...');
+        $('#manageExpirationDate').val('');
+        $('#manageExpirationTime').val('');
+        $('#manageStorageLimitValue').val('');
+        $('#manageStorageLimitUnit').val('GB');
+        $('#passwordStatusBadge').addClass('d-none');
+        $('#passwordRemovalBadge').addClass('d-none');
+        $('#manageRemovePassword').val('0');
     }
 
-    /* ======================================================
-     * Remove Password Button
-     * ====================================================== */
-    const btnRemovePassword = $("btnRemovePassword");
+    function populateManageForm(data) {
+        $('#manageFileRequestId').val(data.id);
+        $('#manageTitle').val(data.title || '').attr('placeholder', '');
+        $('#manageDescription').val(data.description || '').attr('placeholder', '');
+        $('#manageFolderText').val(data.folder_path || 'Root');
+        $('#manageFolderId').val(data.folder_shared_id || '');
+        $('#manageViewsCount').text(data.views_count ?? '0');
+        $('#manageUploadsCount').text(data.uploads_count ?? '0');
 
-    if (btnRemovePassword && managePass && manageRemovePass) {
-        btnRemovePassword.addEventListener("click", () => {
-            manageRemovePass.value = "1";
-            managePass.value = "";
+        // Password handling
+        var $passInput = $('#managePassword');
+        var $passBadge = $('#passwordStatusBadge');
+        var $removePassBadge = $('#passwordRemovalBadge');
+        var $passHelp = $('#managePasswordHelp');
+        var $btnToggle = $('#btnTogglePassword');
 
-            if (passwordStatusBadge && passwordRemovalBadge) {
-                passwordStatusBadge.classList.add("d-none");
-                passwordRemovalBadge.classList.remove("d-none");
-            }
+        $('#togglePasswordIcon').removeClass('fa-eye-slash').addClass('fa-eye');
 
-            const btnToggle = $("btnTogglePassword");
-            if (btnToggle) btnToggle.classList.add("d-none");
-
-            toastr.info("Password will be removed when you save changes");
-        });
-    }
-
-    /* ======================================================
-     * Save Manage
-     * ====================================================== */
-    btnSaveManage?.addEventListener("click", () => {
-        if (!manageForm || !manageId) return;
-        const id = manageId.value;
-        const form = new FormData(manageForm);
-
-        jsonFetch(`/user/file-requests/${id}`, {
-            method: "POST",
-            headers: {
-                "X-CSRF-TOKEN": csrfToken,
-                "X-Requested-With": "XMLHttpRequest",
-            },
-            body: form,
-        })
-            .then(({ data }) => {
-                if (!data.success) return toastr.error(data.message || "Failed to save changes");
-                toastr.success("Changes saved successfully");
-                manageModal?.hide();
-                setTimeout(() => {
-                    cleanupModals();
-                    location.reload();
-                }, 400);
-            })
-            .catch(() => toastr.error("Failed to save changes"));
-    });
-
-    /* ======================================================
-     * Close Request
-     * ====================================================== */
-    btnCloseReq?.addEventListener("click", () => {
-        if (!manageId) return;
-
-        jsonFetch(`/user/file-requests/${manageId.value}/close`, {
-            method: "POST",
-            headers: {
-                "X-CSRF-TOKEN": csrfToken,
-            },
-        })
-            .then(({ data }) => {
-                if (!data.success) return toastr.error(data.message || "Failed to close request");
-                toastr.success("Request closed successfully");
-                manageModal?.hide();
-                setTimeout(() => {
-                    cleanupModals();
-                    location.reload();
-                }, 400);
-            })
-            .catch(() => toastr.error("Failed to close request"));
-    });
-
-    /* ======================================================
-     * Copy Link from Table (event delegation)
-     * ====================================================== */
-    document.addEventListener("click", (e) => {
-        const btn = e.target.closest?.(".js-copy-link");
-        if (!btn) return;
-
-        e.preventDefault();
-        const url = btn.dataset.url;
-        if (navigator.clipboard && url) {
-            navigator.clipboard
-                .writeText(url)
-                .then(() => toastr.success("Link copied to clipboard"))
-                .catch(() => toastr.error("Failed to copy link"));
+        if (data.password_protected) {
+            $passBadge.removeClass('d-none');
+            $removePassBadge.addClass('d-none');
+            $passHelp.text('Leave blank to keep current password');
+            $passInput.val('').attr('type', 'password').attr('placeholder', 'Enter new password to change');
+            $btnToggle.addClass('d-none');
         } else {
-            toastr.error("Failed to copy link");
+            $passBadge.addClass('d-none');
+            $removePassBadge.addClass('d-none');
+            $passHelp.text('Optional: Add a password to protect this link');
+            $passInput.val('').attr('type', 'password').attr('placeholder', 'Enter password');
+            $btnToggle.addClass('d-none');
+        }
+
+        $('#manageRemovePassword').val('0');
+
+        // Expiration
+        if (data.expires_at) {
+            try {
+                var dt = new Date(data.expires_at.replace(' ', 'T'));
+                $('#manageExpirationDate').val(dt.toISOString().slice(0, 10));
+                $('#manageExpirationTime').val(dt.toTimeString().slice(0, 5));
+            } catch (e) {
+                $('#manageExpirationDate').val('');
+                $('#manageExpirationTime').val('');
+            }
+        } else {
+            $('#manageExpirationDate').val('');
+            $('#manageExpirationTime').val('');
+        }
+
+        // Storage limit
+        if (data.storage_limit_value) {
+            $('#manageStorageLimitValue').val(data.storage_limit_value);
+            $('#manageStorageLimitUnit').val(data.storage_limit_unit || 'GB');
+        } else {
+            $('#manageStorageLimitValue').val('');
+            $('#manageStorageLimitUnit').val('GB');
+        }
+    }
+
+    $(document).on('click', '.js-manage-request', function () {
+        var id = $(this).data('id');
+        if (!id) return;
+
+        // STEP 1: Open modal IMMEDIATELY with loading state
+        cleanupModals();
+        resetManageFormToLoading();
+        getModal('manage')?.show();
+
+        // STEP 2: Fetch data in background and populate
+        api('/user/file-requests/' + id)
+            .done(function (data) {
+                if (!data) {
+                    toastr.error('No data received');
+                    return;
+                }
+                populateManageForm(data);
+            })
+            .fail(function () {
+                toastr.error('Failed to load request details');
+                getModal('manage')?.hide();
+            });
+    });
+
+    // ============================================================
+    // PASSWORD TOGGLES
+    // ============================================================
+
+    $('#btnToggleCreatePassword').on('click', function () {
+        var $input = $('#createPassword');
+        var $icon = $('#toggleCreatePasswordIcon');
+        var isPassword = $input.attr('type') === 'password';
+
+        $input.attr('type', isPassword ? 'text' : 'password');
+        $icon.toggleClass('fa-eye', !isPassword).toggleClass('fa-eye-slash', isPassword);
+    });
+
+    $('#createPassword').on('input', function () {
+        var hasValue = $(this).val().trim().length > 0;
+        $('#btnToggleCreatePassword').toggleClass('d-none', !hasValue);
+
+        if (!hasValue) {
+            $(this).attr('type', 'password');
+            $('#toggleCreatePasswordIcon').removeClass('fa-eye-slash').addClass('fa-eye');
         }
     });
 
-    /* ======================================================
-     * FOLDER PICKER FUNCTIONALITY
-     * ====================================================== */
-    const folderPickerModalEl = $("folderPickerModal");
-    const folderPickerModal   = folderPickerModalEl ? new bootstrap.Modal(folderPickerModalEl) : null;
-    const btnChangeFolder     = $("btnChangeFolder");
-    const manageChangeFolder  = $("manageChangeFolder");
-    const folderPickerList    = $("folderPickerList");
+    $('#btnRemovePassword').on('click', function () {
+        $('#manageRemovePassword').val('1');
+        $('#managePassword').val('');
+        $('#passwordStatusBadge').addClass('d-none');
+        $('#passwordRemovalBadge').removeClass('d-none');
+        $('#btnTogglePassword').addClass('d-none');
 
-    const frSelectedFolderId = $("frSelectedFolderId");
+        toastr.info('Password will be removed when you save changes');
+    });
 
-    let allFolders = [];
-    let activeFolderTarget = "create"; // 'create' or 'manage'
+    // ============================================================
+    // SAVE MANAGE
+    // ============================================================
 
-    async function openFolderPicker(target) {
-        if (!folderPickerModal || !folderPickerList) return;
+    $('#btnSaveFileRequest').on('click', function () {
+        var $btn = $(this);
+        var id = $('#manageFileRequestId').val();
+
+        if (!$manageForm.length || !id) return;
+
+        setBtnLoading($btn, true, 'Saving...');
+
+        api('/user/file-requests/' + id, {
+            type: 'POST',
+            data: new FormData($manageForm[0]),
+            processData: false,
+            contentType: false
+        })
+            .done(function (data) {
+                setBtnLoading($btn, false);
+
+                if (!data.success) {
+                    toastr.error(data.message || 'Failed to save changes');
+                    return;
+                }
+
+                toastr.success('Changes saved successfully');
+                getModal('manage')?.hide();
+
+                setTimeout(function () {
+                    cleanupModals();
+                    location.reload();
+                }, 400);
+            })
+            .fail(function (xhr) {
+                setBtnLoading($btn, false);
+                var msg = xhr.responseJSON?.message || 'Failed to save changes';
+                toastr.error(msg);
+            });
+    });
+
+    // ============================================================
+    // CLOSE REQUEST
+    // ============================================================
+
+    $('#btnCloseFileRequest').on('click', function () {
+        var $btn = $(this);
+        var id = $('#manageFileRequestId').val();
+        if (!id) return;
+
+        if (!confirm('Are you sure you want to close this request?')) return;
+
+        setBtnLoading($btn, true, 'Closing...');
+
+        api('/user/file-requests/' + id + '/close', { type: 'POST' })
+            .done(function (data) {
+                setBtnLoading($btn, false);
+
+                if (!data.success) {
+                    toastr.error(data.message || 'Failed to close request');
+                    return;
+                }
+
+                toastr.success('Request closed successfully');
+                getModal('manage')?.hide();
+
+                setTimeout(function () {
+                    cleanupModals();
+                    location.reload();
+                }, 400);
+            })
+            .fail(function (xhr) {
+                setBtnLoading($btn, false);
+                var msg = xhr.responseJSON?.message || 'Failed to close request';
+                toastr.error(msg);
+            });
+    });
+
+    // ============================================================
+    // COPY LINK FROM TABLE
+    // ============================================================
+
+    $(document).on('click', '.js-copy-link', function (e) {
+        e.preventDefault();
+        var url = $(this).data('url');
+        copyToClipboard(url, 'Link copied to clipboard', 'No link available');
+    });
+
+    // ============================================================
+    // FOLDER PICKER
+    // ============================================================
+
+    function openFolderPicker(target) {
+        var modal = getModal('folder');
+        if (!modal) return;
 
         activeFolderTarget = target;
 
-        folderPickerList.innerHTML = `
-            <div class="text-center py-4">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        `;
+        var $list = $('#folderPickerList');
+        $list.html('<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>');
 
-        folderPickerModal.show();
+        modal.show();
 
-        try {
-            const { data } = await jsonFetch("/user/file-requests/folders", {
-                headers: {
-                    "X-CSRF-TOKEN": csrfToken,
-                    "X-Requested-With": "XMLHttpRequest",
-                    Accept: "application/json",
-                },
+        api('/user/file-requests/folders')
+            .done(function (data) {
+                if (data.success && data.folders) {
+                    allFolders = data.folders;
+                    renderFolderList(data.folders);
+                } else {
+                    $list.html('<div class="alert alert-danger mb-0">Failed to load folders</div>');
+                }
+            })
+            .fail(function () {
+                $list.html('<div class="alert alert-danger mb-0">Error loading folders</div>');
             });
-
-            if (data.success && data.folders) {
-                allFolders = data.folders;
-                renderFolderList(allFolders);
-            } else {
-                folderPickerList.innerHTML = `
-                    <div class="alert alert-danger">
-                        Failed to load folders
-                    </div>
-                `;
-            }
-        } catch (error) {
-            console.error("Error loading folders:", error);
-            folderPickerList.innerHTML = `
-                <div class="alert alert-danger">
-                    Error loading folders. Please try again.
-                </div>
-            `;
-        }
     }
 
-    btnChangeFolder?.addEventListener("click", () => openFolderPicker("create"));
-    manageChangeFolder?.addEventListener("click", () => openFolderPicker("manage"));
-
     function renderFolderList(folders) {
-        if (!folderPickerList) return;
+        var $list = $('#folderPickerList');
+        if (!$list.length) return;
 
         if (!folders || folders.length === 0) {
-            folderPickerList.innerHTML = `
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>
-                    No folders found. Create folders in the Files section first.
-                </div>
-            `;
+            $list.html('<div class="alert alert-info mb-0"><i class="fas fa-info-circle me-2"></i>No folders found.</div>');
             return;
         }
 
-        const rootFolders = folders.filter((f) => !f.parent_id);
-        const childMap = {};
-        folders.forEach((f) => {
+        var rootFolders = folders.filter(function (f) { return !f.parent_id; });
+        var childMap = {};
+        folders.forEach(function (f) {
             if (f.parent_id) {
                 if (!childMap[f.parent_id]) childMap[f.parent_id] = [];
                 childMap[f.parent_id].push(f);
             }
         });
 
-        let html = `
-            <button type="button" class="list-group-item list-group-item-action folder-item"
-                    data-folder-id="" data-folder-name="Root">
-                <i class="fas fa-folder me-2 text-primary"></i>
-                <strong>Root (All Files)</strong>
-            </button>
-        `;
+        var html = '<button type="button" class="list-group-item list-group-item-action folder-item" data-folder-id="" data-folder-name="Root"><i class="fas fa-folder me-2 text-primary"></i><strong>Root</strong></button>';
 
-        function escapeHtml(text) {
-            const div = document.createElement("div");
-            div.textContent = text;
-            return div.innerHTML;
+        function renderFolder(folder, level) {
+            var indent = '';
+            for (var i = 0; i < (level || 0); i++) indent += '&nbsp;&nbsp;&nbsp;&nbsp;';
+            var safeName = escapeHtml(folder.name);
+            html += '<button type="button" class="list-group-item list-group-item-action folder-item" data-folder-id="' + folder.shared_id + '" data-folder-name="' + safeName + '">' + indent + '<i class="fas fa-folder me-2 text-warning"></i>' + safeName + '</button>';
+            var children = childMap[folder.id] || [];
+            children.forEach(function (child) { renderFolder(child, (level || 0) + 1); });
         }
 
-        function renderFolder(folder, level = 0) {
-            const indent = "&nbsp;&nbsp;&nbsp;&nbsp;".repeat(level);
-            const safeName = escapeHtml(folder.name);
-
-            html += `
-                <button type="button" class="list-group-item list-group-item-action folder-item"
-                        data-folder-id="${folder.shared_id}" data-folder-name="${safeName}">
-                    ${indent}<i class="fas fa-folder me-2 text-warning"></i>
-                    ${safeName}
-                </button>
-            `;
-
-            const children = childMap[folder.id] || [];
-            children.forEach((child) => renderFolder(child, level + 1));
-        }
-
-        rootFolders.forEach((folder) => renderFolder(folder));
-
-        folderPickerList.innerHTML = html;
+        rootFolders.forEach(function (f) { renderFolder(f, 0); });
+        $list.html(html);
     }
 
-    // Folder picker click – event delegation on list container
-    folderPickerList?.addEventListener("click", (e) => {
-        const item = e.target.closest?.(".folder-item");
-        if (!item) return;
+    $('#btnChangeFolder').on('click', function () { openFolderPicker('create'); });
+    $('#manageChangeFolder').on('click', function () { openFolderPicker('manage'); });
 
-        const folderId   = item.dataset.folderId || "";
-        const folderName = item.dataset.folderName || "Root";
+    $(document).on('click', '#folderPickerList .folder-item', function () {
+        var folderId = $(this).data('folder-id') || '';
+        var folderName = $(this).data('folder-name') || 'Root';
 
-        if (activeFolderTarget === "create") {
-            if (frSelectedFolderId) frSelectedFolderId.value = folderId;
-            if (frSelectedFolderText) frSelectedFolderText.value = folderName;
-        } else if (activeFolderTarget === "manage") {
-            if (manageFolderId) manageFolderId.value = folderId;
-            if (manageFolderText) manageFolderText.value = folderName;
+        if (activeFolderTarget === 'create') {
+            $('#frSelectedFolderId').val(folderId);
+            $('#frSelectedFolderText').val(folderName);
+        } else {
+            $('#manageFolderId').val(folderId);
+            $('#manageFolderText').val(folderName);
         }
 
-        folderPickerModal?.hide();
-        toastr.success(`Selected folder: ${folderName}`);
+        getModal('folder')?.hide();
+        toastr.success('Selected: ' + folderName);
     });
-});
+
+    console.log('FileRequests: initialized');
+
+})(jQuery);

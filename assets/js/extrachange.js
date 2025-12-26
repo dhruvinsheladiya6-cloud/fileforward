@@ -1959,143 +1959,237 @@ document.addEventListener('DOMContentLoaded', function () {
 // FileManager class to handle file operations0000000-----------------------------------------------
 
 
-// ---- Robust navbar loader (reference-counted, XHR/fetch safe) ----
-(function () {
-    // prevent double-install
-    if (window.__navbarLoaderInstalled) return;
-    window.__navbarLoaderInstalled = true;
+// ---- Navbar Loading Bar - NOW IN dash.blade.php (inline) ----
+// Disabled here to avoid duplicate. See layout file for the loader code.
+/*
+(function() {
+    'use strict';
+    console.log('NavbarLoader: DISABLED - using inline version');
+    return; // Skip this version
 
-    const bar = document.getElementById('navbarLoadingBar');
-    const fill = document.getElementById('navbarLoadingFill');
-    if (!bar || !fill) return;
-
-    let active = 0;
-    let hideTimer = null;
-    let failsafeTimer = null;
-    const HIDE_DELAY = 200;
-    const FAILSAFE_MS = 15000; // longer for big uploads
-
-    const reallyHide = () => {
-        clearTimeout(hideTimer);
-        clearTimeout(failsafeTimer);
-        fill.classList.remove('animate');
-        bar.classList.remove('active');
-    };
-
-    const activate = () => {
-        fill.classList.remove('animate');
-        bar.classList.remove('active');
-        // force reflow to restart keyframes
-        // eslint-disable-next-line no-unused-expressions
-        bar.offsetHeight;
-        bar.classList.add('active');
-        requestAnimationFrame(() => fill.classList.add('animate'));
-
-        clearTimeout(failsafeTimer);
-        failsafeTimer = setTimeout(() => {
-            active = 0;            // only hides bar, never touches network
-            reallyHide();
-        }, FAILSAFE_MS);
-    };
-
-    const start = () => {
-        if (active === 0) activate();
-        active++;
-    };
-
-    const stop = () => {
-        if (active > 0) active--;
-        if (active === 0) {
-            clearTimeout(hideTimer);
-            hideTimer = setTimeout(reallyHide, HIDE_DELAY);
+    function initLoader() {
+        var bar = document.getElementById('navbarLoadingBar');
+        var fill = document.getElementById('navbarLoadingFill');
+        if (!bar || !fill) {
+            console.warn('NavbarLoader: elements not found');
+            return;
         }
-    };
 
-    // expose helpers
-    window.showLoadingForOperation = (promise) => {
-        start();
-        return Promise.resolve(promise).finally(stop);
-    };
-    window.showLoadingForElement = (el) => {
-        if (el) el.addEventListener('click', () => start(), { passive: true });
-    };
+        // State
+        var isRunning = false;
+        var currentProgress = 0;
+        var progressTimer = null;
+        var completeTimer = null;
+        var startTime = 0;
+        var pendingRequests = 0;
+        var checkDoneTimer = null;
+        var initTime = Date.now(); // Track when initialized
 
-    // ---- Patch fetch (bind to window to avoid Illegal invocation) ----
-    if (typeof window.fetch === 'function') {
-        const originalFetch = window.fetch;
-        window.fetch = function (...args) {
-            start();
-            const p = originalFetch.apply(window, args); // bind to window (not arbitrary this)
-            return (typeof p.finally === 'function')
-                ? p.finally(stop)
-                : p.then((v) => { stop(); return v; }, (e) => { stop(); throw e; });
-        };
-    }
+        // Config
+        var COMPLETE_DELAY = 250;
+        var MAX_AUTO_PROGRESS = 90;
+        var FAILSAFE_TIMEOUT = 25000;
+        var GRACE_PERIOD = 600; // Don't trigger loader for 600ms after page load
 
-    // ---- Patch XMLHttpRequest via prototype (do NOT replace constructor) ----
-    const XHRProto = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
-    if (XHRProto) {
-        const origOpen = XHRProto.open;
-        const origSend = XHRProto.send;
+        function setProgress(percent) {
+            currentProgress = Math.min(100, Math.max(0, percent));
+            fill.style.width = currentProgress + '%';
+        }
 
-        XHRProto.open = function (...args) {
-            try { this.__uxCounted = false; } catch (_) { }
-            return origOpen.call(this, ...args);   // call with correct this
-        };
+        function show() {
+            bar.classList.add('active');
+            fill.classList.add('animate');
+            fill.style.opacity = '1';
+        }
 
-        XHRProto.send = function (...args) {
-            try {
-                if (!this.__uxCounted) {
-                    this.__uxCounted = true;
-                    start();
-                    const once = { once: true };
-                    if (typeof this.addEventListener === 'function') {
-                        this.addEventListener('loadend', stop, once);
-                        this.addEventListener('error', stop, once);
-                        this.addEventListener('abort', stop, once);
-                        this.addEventListener('timeout', stop, once);
-                    } else {
-                        // very old engines fallback
-                        const stopOnce = () => { stop(); this.onloadend = this.onerror = this.onabort = this.ontimeout = null; };
-                        this.onloadend = stopOnce;
-                        this.onerror = stopOnce;
-                        this.onabort = stopOnce;
-                        this.ontimeout = stopOnce;
-                    }
+        function hide() {
+            clearTimeout(progressTimer);
+            clearTimeout(completeTimer);
+
+            fill.style.transition = 'opacity 0.3s ease';
+            fill.style.opacity = '0';
+
+            setTimeout(function () {
+                bar.classList.remove('active');
+                fill.classList.remove('animate');
+                fill.style.width = '0%';
+                fill.style.transition = 'width 0.3s ease-out';
+                fill.style.opacity = '1';
+                currentProgress = 0;
+                isRunning = false;
+            }, 300);
+        }
+
+        function tickProgress() {
+            if (!isRunning || currentProgress >= MAX_AUTO_PROGRESS) return;
+
+            var increment, delay;
+
+            if (currentProgress < 30) {
+                increment = 6 + Math.random() * 5;
+                delay = 120;
+            } else if (currentProgress < 50) {
+                increment = 3 + Math.random() * 3;
+                delay = 200;
+            } else if (currentProgress < 70) {
+                increment = 1.5 + Math.random() * 1.5;
+                delay = 350;
+            } else {
+                increment = 0.3 + Math.random() * 0.7;
+                delay = 500;
+            }
+
+            setProgress(Math.min(MAX_AUTO_PROGRESS, currentProgress + increment));
+            progressTimer = setTimeout(tickProgress, delay);
+        }
+
+        // START - Begin loading (WON'T restart if already running!)
+        function start() {
+            clearTimeout(completeTimer);
+            if (isRunning) return; // KEY: Don't restart!
+
+            isRunning = true;
+            startTime = Date.now();
+            currentProgress = 0;
+
+            fill.style.transition = 'width 0.3s ease-out';
+            fill.style.width = '0%';
+            show();
+
+            setTimeout(function () {
+                if (isRunning) {
+                    setProgress(15);
+                    tickProgress();
                 }
-            } catch (_) { /* never block the request */ }
-            return origSend.call(this, ...args);   // call with correct this
-        };
+            }, 30);
+        }
+
+        // DONE - Complete to 100% and hide
+        function done() {
+            if (!isRunning) return;
+            clearTimeout(progressTimer);
+            setProgress(100);
+            completeTimer = setTimeout(hide, COMPLETE_DELAY);
+        }
+
+        // Force reset
+        function forceReset() {
+            clearTimeout(progressTimer);
+            clearTimeout(completeTimer);
+            clearTimeout(checkDoneTimer);
+            bar.classList.remove('active');
+            fill.classList.remove('animate');
+            fill.style.width = '0%';
+            fill.style.opacity = '1';
+            currentProgress = 0;
+            isRunning = false;
+            pendingRequests = 0;
+        }
+
+        // Debounced request tracking
+        function requestStart() {
+            pendingRequests++;
+            start();
+        }
+
+        function requestEnd() {
+            pendingRequests = Math.max(0, pendingRequests - 1);
+            clearTimeout(checkDoneTimer);
+            checkDoneTimer = setTimeout(function () {
+                if (pendingRequests === 0) done();
+            }, 80);
+        }
+
+        // Expose globally
+        window.NProgress = { start: start, done: done, set: setProgress, reset: forceReset };
+        window.showLoadingForOperation = function (p) { start(); return Promise.resolve(p).finally(done); };
+        window.forceHideLoader = forceReset;
+
+        // Patch fetch
+        if (typeof window.fetch === 'function') {
+            var origFetch = window.fetch;
+            window.fetch = function () {
+                requestStart();
+                return origFetch.apply(window, arguments)
+                    .then(function (r) { requestEnd(); return r; })
+                    .catch(function (e) { requestEnd(); throw e; });
+            };
+        }
+
+        // Patch XMLHttpRequest
+        var XHR = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
+        if (XHR) {
+            var origOpen = XHR.open, origSend = XHR.send;
+
+            XHR.open = function () {
+                this.__tracked = false;
+                return origOpen.apply(this, arguments);
+            };
+
+            XHR.send = function () {
+                var x = this;
+                if (!x.__tracked) {
+                    x.__tracked = true;
+                    requestStart();
+                    var end = function () {
+                        requestEnd();
+                        x.removeEventListener('load', end);
+                        x.removeEventListener('error', end);
+                        x.removeEventListener('abort', end);
+                    };
+                    x.addEventListener('load', end);
+                    x.addEventListener('error', end);
+                    x.addEventListener('abort', end);
+                }
+                return origSend.apply(this, arguments);
+            };
+        }
+
+        // Navigation links (only for actual page navigation, not AJAX buttons)
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest('a[href]');
+            if (!link) return;
+
+            var href = link.getAttribute('href') || '';
+            if (href.startsWith('#') || href.startsWith('javascript:')) return;
+            if (link.hasAttribute('data-bs-toggle') || link.hasAttribute('data-toggle')) return;
+            if (link.classList.contains('js-') || link.hasAttribute('data-action')) return;
+            if (link.target === '_blank') return;
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            if (e.defaultPrevented) return;
+
+            start();
+        });
+
+        // Forms
+        document.addEventListener('submit', function (e) {
+            if (!e.defaultPrevented) start();
+        });
+
+        // Page lifecycle
+        window.addEventListener('beforeunload', start);
+        window.addEventListener('load', forceReset);
+        window.addEventListener('pageshow', forceReset);
+
+        // Failsafe
+        setInterval(function () {
+            if (isRunning && (Date.now() - startTime) > FAILSAFE_TIMEOUT) {
+                console.warn('Loader failsafe triggered');
+                forceReset();
+            }
+        }, 5000);
+
+        console.log('NavbarLoader: initialized');
     }
 
-    // ---- Forms ----
-    document.addEventListener('submit', () => {
-        start();
-        setTimeout(stop, 5000);
-    });
-
-    // ---- Links that navigate ----
-    document.addEventListener('click', (e) => {
-        const link = e.target.closest('a[href]');
-        if (!link) return;
-        if (link.getAttribute('href').startsWith('#')) return;
-        if (link.hasAttribute('data-bs-toggle')) return;
-        if (link.target === '_blank' || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-
-        let prevented = false;
-        const onBefore = (evt) => { if (evt.defaultPrevented) prevented = true; };
-        document.addEventListener('click', onBefore, { capture: true, once: true });
-
-        setTimeout(() => {
-            if (!prevented) start();
-            if (prevented) setTimeout(stop, 3000);
-        }, 0);
-    }, { passive: true });
-
-    // ---- Page lifecycle ----
-    window.addEventListener('beforeunload', () => { start(); });
-    window.addEventListener('load', () => { active = 0; reallyHide(); });
+    // Call initLoader when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initLoader);
+    } else {
+        initLoader();
+    }
 })();
+*/
 
 
 

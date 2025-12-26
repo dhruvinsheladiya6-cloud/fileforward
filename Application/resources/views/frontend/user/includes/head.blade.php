@@ -1,3 +1,37 @@
+<!-- Passive Event Listener Polyfill - Must be first script! -->
+<script>
+(function() {
+    // Check if passive events are supported
+    var supportsPassive = false;
+    try {
+        var opts = Object.defineProperty({}, 'passive', {
+            get: function() { supportsPassive = true; return true; }
+        });
+        window.addEventListener('testPassive', null, opts);
+        window.removeEventListener('testPassive', null, opts);
+    } catch (e) {}
+    
+    // If supported, patch addEventListener to make scroll events passive by default
+    if (supportsPassive) {
+        var originalAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function(type, listener, options) {
+            var passiveEvents = ['touchstart', 'touchmove', 'touchend', 'wheel', 'mousewheel', 'scroll'];
+            var newOptions = options;
+            
+            if (passiveEvents.indexOf(type) !== -1) {
+                if (typeof options === 'undefined' || options === false || options === null) {
+                    newOptions = { passive: true };
+                } else if (typeof options === 'object' && options.passive === undefined) {
+                    newOptions = Object.assign({}, options, { passive: true });
+                }
+            }
+            
+            return originalAddEventListener.call(this, type, listener, newOptions);
+        };
+    }
+})();
+</script>
+
 @include('frontend.configurations.metaTags')
 <title>{{ pageTitle($__env) }}</title>
 <link rel="apple-touch-icon-precomposed" href="{{ asset($settings['website_favicon']) }}"/>

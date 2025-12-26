@@ -7,7 +7,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // Only run if we're on a page that has the upload link button
     const createUploadLinkBtn = document.querySelector('.create-upload-link-option');
     if (!createUploadLinkBtn) {
-        console.log('Create Upload Link button not found - skipping initialization');
         return; // Exit early if button doesn't exist on this page
     }
 

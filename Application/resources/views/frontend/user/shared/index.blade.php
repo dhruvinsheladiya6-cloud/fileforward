@@ -667,7 +667,7 @@
         const span = $('#swmFileName');
         fileName = (fileName || '').trim();
         if (fileName) {
-            span.textContent = '“' + fileName + '”';
+            span.textContent = '"' + fileName + '"';
             span.title = fileName;
             span.style.display = '';
         } else {
@@ -703,13 +703,10 @@
         return (str || '').replace(/[&<>"']/g, (s) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[s]));
     }
 
-    // Render people with access list including owner
-    // Render people with access list including owner/uploader logic
     function renderPeopleList(people, ownerInfo, uploaderInfo = null) {
         const container = $('#swmPeopleList');
-        const section   = $('#swmPeopleSection');
+        const section = $('#swmPeopleSection');
 
-        // Hide section if nothing to show
         if ((!people || !Array.isArray(people) || people.length === 0) && !ownerInfo && !uploaderInfo) {
             section.style.display = 'none';
             container.innerHTML = '';
@@ -717,130 +714,70 @@
         }
 
         section.style.display = 'block';
+        let html = '';
 
-        let peopleHtml = '';
-
-        // Normalize owner/uploader data
-        const ownerId    = ownerInfo?.id ?? null;
+        const ownerId = ownerInfo?.id ?? null;
         const ownerEmail = ownerInfo?.email || '';
-        const ownerName  = ownerInfo?.name  || ownerEmail;
+        const ownerName = ownerInfo?.name || ownerEmail;
 
-        const uploaderId    = uploaderInfo?.id ?? null;
+        const uploaderId = uploaderInfo?.id ?? null;
         const uploaderEmail = uploaderInfo?.email || '';
-        const uploaderName  = uploaderInfo?.name  || uploaderEmail;
+        const uploaderName = uploaderInfo?.name || uploaderEmail;
 
-        const hasDifferentUploader =
-            uploaderInfo &&
-            ownerInfo &&
-            uploaderId &&
-            ownerId &&
-            uploaderId !== ownerId;
+        const hasDifferentUploader = uploaderInfo && ownerInfo && uploaderId && ownerId && uploaderId !== ownerId;
 
-        // 🔹 If uploader and owner are different:
-        //    - show uploader as Owner
-        //    - show original owner as Editor
-        if (hasDifferentUploader) {
-            // Uploader row as OWNER
-            peopleHtml += `
+        function renderOwnerItem(name, email, badge, badgeClass) {
+            return `
                 <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
                     <div class="d-flex align-items-center flex-grow-1">
                         <div class="avatar me-2">
-                            <div class="bg-success rounded-circle d-flex align-items-center justify-content-center text-white"
-                                style="width: 32px; height: 32px; font-size: 14px;">
-                                ${uploaderName.charAt(0).toUpperCase()}
+                            <div class="bg-${badgeClass} rounded-circle d-flex align-items-center justify-content-center text-white"
+                                style="width:32px;height:32px;font-size:14px;">
+                                ${escapeHtml(name).charAt(0).toUpperCase()}
                             </div>
                         </div>
                         <div class="flex-grow-1">
-                            <div class="fw-medium">${escapeHtml(uploaderName)}</div>
-                            <div class="text-muted small">${escapeHtml(uploaderEmail)}</div>
+                            <div class="fw-medium">${escapeHtml(name)}</div>
+                            <div class="text-muted small">${escapeHtml(email)}</div>
                         </div>
                     </div>
-                    <div class="d-flex align-items-center">
-                        <span class="badge bg-success">Owner</span>
-                    </div>
-                </div>
-            `;
-
-            // Original owner row as EDITOR
-            peopleHtml += `
-                <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
-                    <div class="d-flex align-items-center flex-grow-1">
-                        <div class="avatar me-2">
-                            <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center text-white"
-                                style="width: 32px; height: 32px; font-size: 14px;">
-                                ${ownerName.charAt(0).toUpperCase()}
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="fw-medium">${escapeHtml(ownerName)}</div>
-                            <div class="text-muted small">${escapeHtml(ownerEmail)}</div>
-                        </div>
-                    </div>
-                    <div class="d-flex align-items-center">
-                        <span class="badge bg-primary">Editor</span>
-                    </div>
-                </div>
-            `;
-        } else if (ownerInfo) {
-            // 🔹 Normal case: single owner
-            peopleHtml += `
-                <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
-                    <div class="d-flex align-items-center flex-grow-1">
-                        <div class="avatar me-2">
-                            <div class="bg-success rounded-circle d-flex align-items-center justify-content-center text-white"
-                                style="width: 32px; height: 32px; font-size: 14px;">
-                                ${ownerName.charAt(0).toUpperCase()}
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <div class="fw-medium">${escapeHtml(ownerName)}</div>
-                            <div class="text-muted small">${escapeHtml(ownerEmail)}</div>
-                        </div>
-                    </div>
-                    <div class="d-flex align-items-center">
-                        <span class="badge bg-success">Owner</span>
-                    </div>
+                    <span class="badge bg-${badgeClass}">${badge}</span>
                 </div>
             `;
         }
 
-        // 🔹 Existing shared people list (unchanged, except function signature)
+        if (hasDifferentUploader) {
+            html += renderOwnerItem(uploaderName, uploaderEmail, '{{ __("Owner") }}', 'success');
+            html += renderOwnerItem(ownerName, ownerEmail, '{{ __("Editor") }}', 'primary');
+        } else if (ownerInfo) {
+            html += renderOwnerItem(ownerName, ownerEmail, '{{ __("Owner") }}', 'success');
+        }
+
         if (people && Array.isArray(people)) {
             people.forEach(person => {
-                const email      = person.recipient_email || person.email || '';
-                const name       = person.recipient_name || person.name || email;
+                const email = person.recipient_email || person.email || '';
+                const name = person.recipient_name || person.name || email;
                 const permission = person.permission || 'view';
-                const status     = person.status || 'active';
-                const isActive   = status === 'active' && !person.revoked_at && !person.expired;
+                const status = person.status || 'active';
+                const isActive = status === 'active' && !person.revoked_at && !person.expired;
 
-                // Permission badge
+                let badgeText = permission === 'edit' ? '{{ __("Editor") }}' : '{{ __("Viewer") }}';
                 let badgeClass = 'bg-primary text-white';
-                let badgeText  = 'Viewer';
 
-                if (permission === 'edit') {
-                    badgeClass = 'bg-primary text-white';
-                    badgeText  = 'Editor';
-                } else if (permission === 'comment') {
-                    badgeClass = 'bg-info';
-                    badgeText  = 'Commenter';
-                }
-
-                // Status indicator
-                let statusText  = '';
+                let statusText = '';
                 let statusClass = '';
-
                 if (!isActive) {
-                    statusText  = person.revoked_at ? 'Revoked' : 'Expired';
+                    statusText = person.revoked_at ? '{{ __("Revoked") }}' : '{{ __("Expired") }}';
                     statusClass = 'text-danger';
                 }
 
-                peopleHtml += `
+                html += `
                     <div class="person-item d-flex align-items-center justify-content-between py-2 border-bottom">
                         <div class="d-flex align-items-center flex-grow-1">
                             <div class="avatar me-2">
                                 <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center text-white"
-                                    style="width: 32px; height: 32px; font-size: 14px;">
-                                    ${name.charAt(0).toUpperCase()}
+                                    style="width:32px;height:32px;font-size:14px;">
+                                    ${escapeHtml(name).charAt(0).toUpperCase()}
                                 </div>
                             </div>
                             <div class="flex-grow-1">
@@ -851,154 +788,173 @@
                         </div>
                         <div class="d-flex align-items-center">
                             <div class="dropdown me-2">
-                                <button class="btn btn-sm ${badgeClass} dropdown-toggle" type="button" data-bs-toggle="dropdown" 
+                                <button class="btn btn-sm ${badgeClass} dropdown-toggle" type="button" data-bs-toggle="dropdown"
                                         data-share-id="${person.id}" ${!isActive ? 'disabled' : ''}>
                                     ${badgeText}
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
-                                    <li><a class="dropdown-item change-permission" href="#" data-permission="view" data-share-id="${person.id}">Viewer</a></li>
-                                    <li><a class="dropdown-item change-permission" href="#" data-permission="edit" data-share-id="${person.id}">Editor</a></li>
+                                    <li><a class="dropdown-item change-permission" href="#" data-permission="view" data-share-id="${person.id}">{{ __("Viewer") }}</a></li>
+                                    <li><a class="dropdown-item change-permission" href="#" data-permission="edit" data-share-id="${person.id}">{{ __("Editor") }}</a></li>
                                 </ul>
                             </div>
                             ${isActive ? `
-                            <button type="button" class="btn btn-sm btn-outline-danger remove-person" 
-                                    data-share-id="${person.id}" title="Remove access">
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-person"
+                                    data-share-id="${person.id}" title="{{ __('Remove access') }}">
                                 <i class="fas fa-times"></i>
-                            </button>
-                            ` : ''}
+                            </button>` : ''}
                         </div>
                     </div>
                 `;
             });
         }
 
-        container.innerHTML = peopleHtml;
+        container.innerHTML = html;
 
-        // Re-attach event listeners to newly rendered elements
-        container.querySelectorAll('.remove-person').forEach(button => {
-            button.addEventListener('click', function() {
-                const shareId = this.getAttribute('data-share-id');
-                removePersonAccess(shareId);
+        container.querySelectorAll('.remove-person').forEach(btn => {
+            btn.addEventListener('click', function() {
+                removePersonAccess(this.getAttribute('data-share-id'));
             });
         });
 
         container.querySelectorAll('.change-permission').forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
-                const shareId       = this.getAttribute('data-share-id');
-                const newPermission = this.getAttribute('data-permission');
-                updatePersonPermission(shareId, newPermission);
+                updatePersonPermission(this.getAttribute('data-share-id'), this.getAttribute('data-permission'));
             });
         });
     }
 
-
-    // Remove person access - DELETE record
     async function removePersonAccess(shareId) {
-        if (!confirm('Are you sure you want to remove access for this person?')) {
-            return;
-        }
-
+        if (!confirm('{{ __("Are you sure you want to remove access for this person?") }}')) return;
         try {
-            const response = await api(`/user/shares/${shareId}/remove`, {
-                method: 'DELETE'
-            });
-
-            showAlert(response.message || 'Access removed successfully', 'success');
-            // Reload people list
+            const response = await api(`/user/shares/${shareId}/remove`, { method: 'DELETE' });
+            showAlert(response.message || '{{ __("Access removed successfully") }}', 'success');
             await loadPeopleWithAccess();
         } catch (err) {
-            console.error('Remove access error:', err);
-            showAlert(err.toString() || 'Failed to remove access', 'danger');
+            showAlert(err.toString() || '{{ __("Failed to remove access") }}', 'danger');
         }
     }
 
-    // Update person permission
     async function updatePersonPermission(shareId, newPermission) {
         try {
             const response = await api(`/user/shares/${shareId}/update-permission`, {
                 method: 'PUT',
                 data: { permission: newPermission }
             });
-
-            showAlert(response.message || 'Permission updated successfully', 'success');
-            // Reload people list
+            showAlert(response.message || '{{ __("Permission updated successfully") }}', 'success');
             await loadPeopleWithAccess();
         } catch (err) {
-            console.error('Update permission error:', err);
-            showAlert(err.toString() || 'Failed to update permission', 'danger');
+            showAlert(err.toString() || '{{ __("Failed to update permission") }}', 'danger');
         }
     }
 
-    // Load people with access including owner info
     async function loadPeopleWithAccess() {
         if (!currentSharedId) return;
-
         try {
             const response = await api(`{{ url('user/files') }}/${currentSharedId}/shared-people`);
-            console.log('People with access response:', response); // Debug log
-
-            const ownerInfo    = response.owner || null;
-            const uploaderInfo = response.uploader || null;
-
-            // Fallback for owner if API fails to send it for some reason
-            const normalizedOwner = ownerInfo || {
-                email: 'Current User',
-                name: 'Owner'
-            };
-
-            renderPeopleList(response.people || [], normalizedOwner, uploaderInfo);
+            renderPeopleList(response.people || [], response.owner || null, response.uploader || null);
         } catch (err) {
-            console.error('Failed to load people with access:', err);
-            // Fallback: try to get user info from page
-            const currentUser = await getCurrentUserInfo();
-            renderPeopleList([], currentUser, null);
+            renderPeopleList([], { email: 'Current User', name: '{{ __("Owner") }}' }, null);
         }
     }
 
-    // Get current user info - simplified version
-    async function getCurrentUserInfo() {
-        try {
-            // Try to get user info from common Laravel patterns
-            let userEmail = 'Current User';
-            let userName = 'Owner';
-            
-            // Check if user data is available in window object (common in Laravel)
-            if (window.Laravel && window.Laravel.user) {
-                userEmail = window.Laravel.user.email || userEmail;
-                userName = window.Laravel.user.name || userName;
-            }
-            
-            // Check for meta tags
-            const userEmailMeta = document.querySelector('meta[name="user-email"]');
-            const userNameMeta = document.querySelector('meta[name="user-name"]');
-            
-            if (userEmailMeta) userEmail = userEmailMeta.content;
-            if (userNameMeta) userName = userNameMeta.content;
-            
-            return {
-                email: userEmail,
-                name: userName
-            };
-        } catch (error) {
-            console.error('Failed to get user info:', error);
-            return {
-                email: 'Current User',
-                name: 'Owner'
-            };
+    async function updateAccessStatus() {
+        if (!currentSharedId) {
+            showAlert('{{ __("File ID is missing. Please close and try again.") }}', 'danger');
+            return;
         }
+
+        const accessStatusEl = $('#swmAccessStatus');
+        const accessStatus = accessStatusEl.value;
+        accessStatusEl.disabled = true;
+
+        try {
+            const response = await api(`/user/files/${currentSharedId}/update-status`, {
+                method: 'POST',
+                data: { access_status: accessStatus },
+            });
+
+            currentDownloadLink = response.download_link || currentDownloadLink || '';
+            accessStatusEl.value = response.access_status ?? accessStatus;
+            updateCopyLinkButton();
+            showAlert('{{ __("Status updated") }}', 'success');
+        } catch (err) {
+            showAlert(err.toString() || '{{ __("Failed to update access status.") }}', 'danger');
+        } finally {
+            accessStatusEl.disabled = false;
+        }
+    }
+
+    function updateCopyLinkButton() {
+        const accessStatus = $('#swmAccessStatus').value;
+        const copyGroup = $('#swmCopyLinkGroup');
+        const socialIcons = $('#swmSocialIcons');
+
+        if (accessStatus === '1' && currentDownloadLink) {
+            copyGroup.style.display = 'block';
+            if (socialIcons) socialIcons.style.display = 'block';
+        } else {
+            copyGroup.style.display = 'none';
+            if (socialIcons) socialIcons.style.display = 'none';
+        }
+    }
+
+    function copyToClipboard(text) {
+        if (!text) {
+            showAlert('{{ __("No link available") }}', 'danger');
+            return;
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+                showAlert('{{ __("Link copied!") }}', 'success');
+            }).catch(() => {
+                showAlert('{{ __("Failed to copy") }}', 'danger');
+            });
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showAlert('{{ __("Link copied!") }}', 'success');
+            } catch (e) {
+                showAlert('{{ __("Failed to copy") }}', 'danger');
+            }
+            document.body.removeChild(textarea);
+        }
+    }
+
+    function debounce(fn, ms = 200) {
+        let t;
+        return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+    }
+
+    function closeTypeahead() {
+        const dd = $('#swmTypeahead');
+        if (!dd) return;
+        dd.classList.remove('show');
+        suggest.open = false;
+        suggest.activeIndex = -1;
+    }
+
+    function openTypeahead() {
+        const dd = $('#swmTypeahead');
+        if (!dd) return;
+        dd.classList.add('show');
+        suggest.open = true;
     }
 
     function renderTypeahead(q) {
         const dd = $('#swmTypeahead');
-        dd.innerHTML = '';
+        if (!dd) return;
 
-        const emailVal = (q || '').trim();
+        dd.innerHTML = '';
         const items = suggest.items || [];
 
-        if (!items.length && !emailVal) {
-            dd.classList.remove('show');
-            suggest.open = false;
+        if (!items.length) {
+            closeTypeahead();
             return;
         }
 
@@ -1012,67 +968,13 @@
             `;
             el.addEventListener('mousedown', (ev) => {
                 ev.preventDefault();
-                selectSuggestion(idx);
+                $('#swmEmail').value = r.email;
+                closeTypeahead();
             });
             dd.appendChild(el);
         });
 
-        const looksEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal);
-        const dup = items.find((x) => (x.email || '').toLowerCase() === emailVal.toLowerCase());
-        if (looksEmail && !dup) {
-            const invite = document.createElement('div');
-            invite.className = 'dropdown-item invite';
-            invite.innerHTML = `
-                <span class="bi bi-person-plus"></span>
-                <span>${escapeHtml(`Share with ${emailVal}`)}</span>
-            `;
-            invite.addEventListener('mousedown', (ev) => {
-                ev.preventDefault();
-                fillEmail(emailVal);
-                closeTypeahead();
-            });
-            dd.appendChild(invite);
-        }
-
-        if (!items.length && !looksEmail && emailVal) {
-            const nothing = document.createElement('div');
-            nothing.className = 'nothing';
-            nothing.textContent = '{{ __("No matches") }}';
-            dd.appendChild(nothing);
-        }
-
-        dd.classList.add('show');
-        suggest.open = true;
-    }
-
-    function openTypeahead() {
-        $('#swmTypeahead').classList.add('show');
-        suggest.open = true;
-    }
-
-    function closeTypeahead() {
-        $('#swmTypeahead').classList.remove('show');
-        suggest.open = false;
-        suggest.activeIndex = -1;
-    }
-
-    function fillEmail(email) {
-        $('#swmEmail').value = email;
-    }
-
-    function selectSuggestion(idx) {
-        const it = suggest.items[idx];
-        if (!it) return;
-        fillEmail(it.email);
-        closeTypeahead();
-    }
-
-    function debounce(fn, ms = 200) {
-        let t;
-        return (...args) => {
-            clearTimeout(t);
-            t = setTimeout(() => fn(...args), ms);
-        };
+        openTypeahead();
     }
 
     const fetchSuggestions = debounce(async (q = '') => {
@@ -1080,244 +982,130 @@
             const r = await api(`{{ url('user/shares/recipients') }}?limit=20&q=${encodeURIComponent(q)}`);
             suggest.items = Array.isArray(r.recipients) ? r.recipients : [];
             renderTypeahead(q);
-        } catch (e) {
+        } catch {
             suggest.items = [];
             renderTypeahead(q);
         }
     }, 200);
 
-    function updateCopyLinkButton() {
-        const accessStatus = $('#swmAccessStatus').value;
-        const copyLinkGroup = $('#swmCopyLinkGroup');
-        const copyButton = $('#swmCopyLink');
+    const modalEl = document.getElementById('sharedWithMeModal');
+    if (!modalEl) return;
 
-        console.log('updateCopyLinkButton:', {
-            accessStatus,
-            currentDownloadLink,
-            hasDownloadLink: !!currentDownloadLink
-        });
-
-        if (accessStatus === '1') {
-            copyLinkGroup.style.display = 'block';
-            copyButton.disabled = false;
-            console.log('Showing copy link button - Public access');
-        } else {
-            copyLinkGroup.style.display = 'none';
-            copyButton.disabled = true;
-            console.log('Hiding copy link button - Private access');
-        }
-    }
-
-    async function copyToClipboard(text) {
-        console.log('Attempting to copy:', text);
-        if (!text || !text.trim()) {
-            showAlert('{{ __("No link available to copy.") }}', 'danger');
-            return false;
-        }
-
-        if (navigator.clipboard && window.isSecureContext) {
-            try {
-                await navigator.clipboard.writeText(text);
-                showAlert('{{ __("Link copied to clipboard!") }}', 'success');
-                return true;
-            } catch (err) {
-                console.error('Clipboard API error:', err);
-            }
-        }
-
-        if (clipboard) {
-            clipboard.destroy();
-        }
-        const tempInput = document.createElement('input');
-        tempInput.style.position = 'absolute';
-        tempInput.style.left = '-9999px';
-        tempInput.value = text;
-        document.body.appendChild(tempInput);
-
-        clipboard = new ClipboardJS('#swmCopyLink', {
-            target: () => tempInput,
-        });
-
-        return new Promise((resolve) => {
-            clipboard.on('success', (e) => {
-                showAlert('{{ __("Link copied to clipboard!") }}', 'success');
-                e.clearSelection();
-                document.body.removeChild(tempInput);
-                resolve(true);
-            });
-            clipboard.on('error', (e) => {
-                console.error('Clipboard.js error:', e);
-                showAlert('{{ __("Failed to copy link. Please try again.") }}', 'danger');
-                document.body.removeChild(tempInput);
-                resolve(false);
-            });
-        });
-    }
-
-    async function updateAccessStatus() {
-        if (!currentSharedId) {
-            showAlert('{{ __("File ID is missing. Please close and try again.") }}', 'danger');
-            return;
-        }
-
-        const accessStatus = $('#swmAccessStatus').value;
-        const selectElement = $('#swmAccessStatus');
-        selectElement.disabled = true;
-
-        try {
-            const response = await api(`/user/files/${currentSharedId}/update-status`, {
-                method: 'POST',
-                data: { access_status: accessStatus },
-            });
-
-            currentDownloadLink = response.download_link || '';
-            $('#swmAccessStatus').value = response.access_status || accessStatus;
-            
-            updateCopyLinkButton();
-
-            const statusText = accessStatus === '1' ? '{{ __("Public") }}' : '{{ __("Private") }}';
-            showAlert(`{{ __("Status updated to") }} ${statusText}`, 'success');
-
-        } catch (err) {
-            console.error('Update status error:', err);
-            showAlert(err.toString() || '{{ __("Failed to update access status. Please try again.") }}', 'danger');
-            const currentStatus = $('#swmAccessStatus').value;
-            $('#swmAccessStatus').value = currentStatus === '1' ? '0' : '1';
-            updateCopyLinkButton();
-        } finally {
-            selectElement.disabled = false;
-        }
-    }
-
-    document.getElementById('sharedWithMeModal').addEventListener('show.bs.modal', async function (event) {
+    modalEl.addEventListener('show.bs.modal', async function(event) {
         const button = event.relatedTarget;
-        currentSharedId = button.getAttribute('data-file-id');
-        currentType = (button.getAttribute('data-file-type') || 'file').toLowerCase();
-        const fileName = button.getAttribute('data-file-name');
-        const shareData = button.getAttribute('data-share');
-
-        console.log('Modal opened:', { currentSharedId });
+        currentSharedId = button?.getAttribute('data-file-id');
+        currentType = (button?.getAttribute('data-file-type') || 'file').toLowerCase();
+        const fileName = button?.getAttribute('data-file-name') || '';
+        const shareData = button?.getAttribute('data-share') || '';
 
         setTitle(fileName);
-        $('#swmForm').reset();
-        $('#swmPermission').value = 'view';
-        $('#swmEmail').value = '';
+
+        const form = $('#swmForm');
+        if (form) form.reset();
+        const permissionEl = $('#swmPermission');
+        if (permissionEl) permissionEl.value = 'view';
+        const emailEl = $('#swmEmail');
+        if (emailEl) emailEl.value = '';
         closeTypeahead();
 
         try {
             const response = await api(`{{ url('user/files') }}/${currentSharedId}`);
-            const accessStatus = response.access_status || '0';
-            const downloadLink = response.download_link || '';
-
-            console.log('Initial file data:', { accessStatus, downloadLink });
-
-            $('#swmAccessStatus').value = accessStatus;
-            currentDownloadLink = downloadLink;
-            
+            $('#swmAccessStatus').value = response.access_status ?? '0';
+            currentDownloadLink = response.download_link || '';
             updateCopyLinkButton();
-
-            // Load people with access
             await loadPeopleWithAccess();
-
         } catch (e) {
-            console.error('Failed to load file data:', e);
             try {
-                const parsedShareData = shareData ? JSON.parse(shareData) : {};
-                currentDownloadLink = parsedShareData.download_link || '';
-                console.log('Fallback to data-share:', { currentDownloadLink });
-            } catch (parseError) {
-                console.error('Failed to parse data-share:', parseError);
-                currentDownloadLink = '';
-            }
-            
+                const parsed = shareData ? JSON.parse(shareData) : {};
+                currentDownloadLink = parsed.download_link || '';
+            } catch {}
             $('#swmAccessStatus').value = '0';
             updateCopyLinkButton();
-            renderPeopleList([]);
+            renderPeopleList([], null, null);
         }
 
-        const copyButton = $('#swmCopyLink');
-        copyButton.onclick = () => {
-            if (currentDownloadLink) {
-                copyToClipboard(currentDownloadLink);
-            } else {
-                showAlert('{{ __("No download link available.") }}', 'danger');
-            }
-        };
+        const copyBtn = $('#swmCopyLink');
+        if (copyBtn) {
+            copyBtn.onclick = () => copyToClipboard(currentDownloadLink);
+        }
     });
 
-    document.getElementById('sharedWithMeModal').addEventListener('hidden.bs.modal', function () {
+    modalEl.addEventListener('hidden.bs.modal', function() {
         if (clipboard) {
             clipboard.destroy();
             clipboard = null;
         }
         currentSharedId = null;
         currentDownloadLink = '';
-        console.log('Modal closed');
+        closeTypeahead();
     });
 
     const emailInput = $('#swmEmail');
-    let focusFromPointer = false;
-    emailInput.addEventListener('pointerdown', () => {
-        focusFromPointer = true;
-    });
-    emailInput.addEventListener('focus', () => {
-        if (focusFromPointer) {
-            fetchSuggestions('');
-            openTypeahead();
-        }
-        focusFromPointer = false;
-    });
+    if (emailInput) {
+        let focusFromPointer = false;
 
-    emailInput.addEventListener('input', (e) => {
-        const q = e.target.value || '';
-        suggest.lastQuery = q;
+        emailInput.addEventListener('pointerdown', () => {
+            focusFromPointer = true;
+        });
 
-        if (q.trim().length >= MIN_CHARS_TO_SUGGEST) {
-            fetchSuggestions(q);
-            openTypeahead();
-        } else {
-            if (!focusFromPointer) closeTypeahead();
-        }
-    });
-
-    emailInput.addEventListener('keydown', (e) => {
-        if (!suggest.open && e.key === 'ArrowDown') {
-            const q = (emailInput.value || '').trim();
-            if (q.length >= MIN_CHARS_TO_SUGGEST) {
-                e.preventDefault();
-                fetchSuggestions(q);
+        emailInput.addEventListener('focus', () => {
+            if (focusFromPointer) {
+                fetchSuggestions('');
                 openTypeahead();
             }
-            return;
-        }
+            focusFromPointer = false;
+        });
 
-        if (!suggest.open) return;
+        emailInput.addEventListener('input', (e) => {
+            const q = e.target.value || '';
+            suggest.lastQuery = q;
 
-        const count = suggest.items.length;
-        if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(e.key)) e.preventDefault();
-
-        if (e.key === 'ArrowDown') {
-            if (count === 0) return;
-            suggest.activeIndex = (suggest.activeIndex + 1) % count;
-            renderTypeahead(suggest.lastQuery);
-        } else if (e.key === 'ArrowUp') {
-            if (count === 0) return;
-            suggest.activeIndex = (suggest.activeIndex - 1 + count) % count;
-            renderTypeahead(suggest.lastQuery);
-        } else if (e.key === 'Enter' || e.key === 'Tab') {
-            if (suggest.activeIndex >= 0 && suggest.activeIndex < count) {
-                selectSuggestion(suggest.activeIndex);
+            if (q.trim().length >= MIN_CHARS_TO_SUGGEST) {
+                fetchSuggestions(q);
+                openTypeahead();
             } else {
+                if (!focusFromPointer) closeTypeahead();
+            }
+        });
+
+        emailInput.addEventListener('keydown', (e) => {
+            if (!suggest.open && e.key === 'ArrowDown') {
+                const q = (emailInput.value || '').trim();
+                if (q.length >= MIN_CHARS_TO_SUGGEST) {
+                    e.preventDefault();
+                    fetchSuggestions(q);
+                    openTypeahead();
+                }
+                return;
+            }
+
+            if (!suggest.open) return;
+
+            const count = suggest.items.length;
+            if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(e.key)) e.preventDefault();
+
+            if (e.key === 'ArrowDown') {
+                if (count === 0) return;
+                suggest.activeIndex = (suggest.activeIndex + 1) % count;
+                renderTypeahead(suggest.lastQuery);
+            } else if (e.key === 'ArrowUp') {
+                if (count === 0) return;
+                suggest.activeIndex = (suggest.activeIndex - 1 + count) % count;
+                renderTypeahead(suggest.lastQuery);
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                if (suggest.activeIndex >= 0 && suggest.activeIndex < count) {
+                    emailInput.value = suggest.items[suggest.activeIndex].email;
+                }
+                closeTypeahead();
+            } else if (e.key === 'Escape') {
                 closeTypeahead();
             }
-        } else if (e.key === 'Escape') {
-            closeTypeahead();
-        }
-    });
+        });
 
-    emailInput.addEventListener('blur', () => {
-        setTimeout(closeTypeahead, 120);
-    });
+        emailInput.addEventListener('blur', () => {
+            setTimeout(closeTypeahead, 120);
+        });
+    }
 
     $('#swmAccessStatus').addEventListener('change', updateAccessStatus);
 
@@ -1329,12 +1117,12 @@
         }
 
         const accessStatus = $('#swmAccessStatus').value;
-        const email = (emailInput.value || '').trim();
+        const email = (emailInput?.value || '').trim();
         const submitBtn = e.target.querySelector('button[type="submit"]');
 
         if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
             showAlert('{{ __("Please enter a valid email address.") }}', 'danger');
-            emailInput.focus();
+            emailInput?.focus();
             return;
         }
 
@@ -1360,20 +1148,17 @@
                 currentDownloadLink = response.download_link;
             }
 
-            showAlert(response.message, 'success');
+            showAlert(response.message || '{{ __("Shared successfully") }}', 'success');
 
-            if (email) {
+            if (emailInput) {
                 emailInput.value = '';
                 closeTypeahead();
             }
 
             updateCopyLinkButton();
-            
-            // Reload people list after sharing
             await loadPeopleWithAccess();
-            
+
         } catch (err) {
-            console.error('Share error:', err);
             showAlert(err.toString() || '{{ __("Sharing failed. Please try again.") }}', 'danger');
         } finally {
             if (submitBtn) {
@@ -1385,3 +1170,18 @@
 })();
 </script>
 @endpush
+
+
+
+        
+
+
+
+
+
+
+
+
+
+
+

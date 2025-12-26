@@ -8,7 +8,10 @@
 @stack('scripts_libs')
 <script src="{{ asset(mix('assets/js/application.js')) }}"></script>
 <script src="{{ asset(mix('assets/js/extrachange.js')) }}"></script>
+<script src="{{ asset(mix('assets/js/fileManagerCore.js')) }}"></script>
+<script src="{{ asset(mix('assets/js/shareWithMe.js')) }}"></script>
+<script src="{{ asset(mix('assets/js/contextMenu.js')) }}"></script>
 <script src="{{ asset('assets/js/dashboard-header.js') }}"></script>
 <script src="{{ asset('assets/js/extra/extra.js') }}"></script>
 @toastr_render
-@stack('scripts')
+{{-- Note: @stack('scripts') is in dash.blade.php after this include, ensuring all scripts here load first --}}
